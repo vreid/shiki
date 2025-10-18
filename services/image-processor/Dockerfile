@@ -2,26 +2,22 @@ FROM golang:1.25 AS build
 
 WORKDIR /workspace
 
-COPY go.work go.work
-COPY go.work.sum* go.work.sum
-COPY .golangci.yml .golangci.yml
+COPY .golangci.yml go.work go.work.sum ./
 
-COPY libs/go/go.mod libs/go/go.mod
-COPY libs/go/go.sum* libs/go/go.sum
+ARG LIBRARY_DIR="libs/go"
+WORKDIR /workspace/${LIBRARY_DIR}
 
-COPY libs/go/ libs/go/
+COPY ${LIBRARY_DIR}/go.mod ${LIBRARY_DIR}/go.sum ./
+COPY ${LIBRARY_DIR}/ ./
 
-COPY services/image-processor/go.mod services/image-processor/go.mod
-COPY services/image-processor/go.sum* services/image-processor/go.sum
+ARG SERVICE_DIR="services/image-processor"
+WORKDIR /workspace/${SERVICE_DIR}
 
-RUN cd services/image-processor && go mod download
+COPY ${SERVICE_DIR}/go.mod ${SERVICE_DIR}/go.sum ./
 
-COPY services/image-processor/ services/image-processor/
+RUN go mod download
 
-WORKDIR /workspace/services/image-processor
-
-RUN go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest && \
-    golangci-lint run
+COPY ${SERVICE_DIR}/ ./
 
 ARG CGO_ENABLED=0
 RUN go build -ldflags="-s -w" -trimpath -o server .
@@ -33,6 +29,7 @@ RUN apk --no-cache add \
 
 WORKDIR /app
 
-COPY --from=build /workspace/services/image-processor/server .
+ARG SERVICE_DIR="services/image-processor"
+COPY --from=build /workspace/${SERVICE_DIR}/server .
 
 CMD ["./server"]
