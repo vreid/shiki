@@ -10,7 +10,7 @@ WORKDIR /workspace/${LIBRARY_DIR}
 COPY ${LIBRARY_DIR}/go.mod ${LIBRARY_DIR}/go.sum ./
 COPY ${LIBRARY_DIR}/ ./
 
-ARG SERVICE_DIR="services/image-processor"
+ARG SERVICE_DIR
 WORKDIR /workspace/${SERVICE_DIR}
 
 COPY ${SERVICE_DIR}/go.mod ${SERVICE_DIR}/go.sum ./
@@ -20,7 +20,11 @@ RUN go mod download
 COPY ${SERVICE_DIR}/ ./
 
 ARG CGO_ENABLED=0
-RUN go build -ldflags="-s -w" -trimpath -o server .
+RUN go build \
+    -ldflags="-s -w" \
+    -trimpath \
+    -o server \
+    .
 
 FROM alpine:3.22
 
@@ -29,7 +33,7 @@ RUN apk --no-cache add \
 
 WORKDIR /app
 
-ARG SERVICE_DIR="services/image-processor"
+ARG SERVICE_DIR
 COPY --from=build /workspace/${SERVICE_DIR}/server .
 
 CMD ["./server"]

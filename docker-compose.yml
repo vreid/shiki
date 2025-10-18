@@ -2,7 +2,10 @@ services:
   image-processor:
     build:
       context: .
-      dockerfile: services/image-processor/Dockerfile
+      dockerfile: docker/go/Dockerfile.service
+      args:
+        SERVICE_DIR: services/image-processor
+        LIBRARY_DIR: libs/go
 
 networks:
   default:
