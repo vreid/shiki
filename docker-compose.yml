@@ -1,4 +1,8 @@
 services:
+  image-processor:
+    build:
+      context: .
+      dockerfile: services/image-processor/Dockerfile
 
 networks:
   default:

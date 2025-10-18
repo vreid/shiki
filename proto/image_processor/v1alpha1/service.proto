@@ -2,17 +2,12 @@ syntax = "proto3";
 
 package image_processor.v1alpha1;
 
-import "google/api/annotations.proto";
+option go_package = "image_processor/v1alpha1;image_processor_v1alpha1";
 
 service ImageProcessorService {
-  rpc ProcessImage(ProcessImageRequest) returns (ProcessImageResponse) {
-    option (google.api.http) = {
-      post : "/v1alpha1/images"
-      body : "*"
-    };
-  }
+  rpc UploadImage(UploadImageRequest) returns (UploadImageResponse);
 }
 
-message ProcessImageRequest {}
+message UploadImageRequest { bytes image_data = 1; }
 
-message ProcessImageResponse {}
+message UploadImageResponse { string uuid = 1; }
