@@ -1,0 +1,12 @@
+version: v2
+name: buf.build/vreid/shiki
+lint:
+  use:
+    - STANDARD
+  enum_zero_value_suffix: _UNSPECIFIED
+  rpc_allow_same_request_response: false
+  rpc_allow_google_protobuf_empty_requests: true
+  rpc_allow_google_protobuf_empty_responses: true
+breaking:
+  use:
+    - FILE

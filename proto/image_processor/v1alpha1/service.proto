@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package image_processor.v1alpha1;
+
+import "google/api/annotations.proto";
+
+service ImageProcessorService {
+  rpc ProcessImage(ProcessImageRequest) returns (ProcessImageResponse) {
+    option (google.api.http) = {
+      post : "/v1alpha1/images"
+      body : "*"
+    };
+  }
+}
+
+message ProcessImageRequest {}
+
+message ProcessImageResponse {}
