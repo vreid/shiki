@@ -3,6 +3,10 @@ services:
     build:
       context: .
       dockerfile: services/image-receiver/Dockerfile
+    tmpfs:
+      - /data:size=256M,mode=0755
+    ports:
+      - 3001:3000
   image-processor:
     build:
       context: .
