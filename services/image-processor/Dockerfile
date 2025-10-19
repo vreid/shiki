@@ -2,9 +2,9 @@ FROM golang:1.25-alpine AS build
 
 WORKDIR /workspace
 
-COPY .golangci.yml go.work go.work.sum ./
+COPY .golangci.yml .
 
-ARG LIBRARY_DIR="libs/go"
+ARG LIBRARY_DIR="libs/go/types"
 WORKDIR /workspace/${LIBRARY_DIR}
 
 COPY ${LIBRARY_DIR}/go.mod ${LIBRARY_DIR}/go.sum ./
@@ -16,6 +16,8 @@ WORKDIR /workspace/${SERVICE_DIR}
 COPY ${SERVICE_DIR}/go.mod ${SERVICE_DIR}/go.sum ./
 
 RUN go mod download
+
+WORKDIR /workspace/${SERVICE_DIR}
 
 COPY ${SERVICE_DIR}/ ./
 
@@ -41,7 +43,7 @@ COPY tools/process-image.sh .
 
 WORKDIR /app
 
-ARG SERVICE_DIR
+ARG SERVICE_DIR="services/image-processor"
 COPY --from=build /workspace/${SERVICE_DIR}/server .
 
 CMD ["./server"]

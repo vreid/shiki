@@ -1,6 +1,0 @@
-go 1.25
-
-use (
-	./libs/go
-	./services/image-processor
-)

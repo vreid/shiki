@@ -1,4 +1,4 @@
-module github.com/vreid/shiki/services/image-processor
+module github.com/vreid/shiki/services/image-receier
 
 go 1.25
 
