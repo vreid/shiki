@@ -159,7 +159,7 @@ func processUpload(ctx context.Context, uploadID string) error {
 	return nil
 }
 
-//nolint:cyclop,funlen
+//nolint:cyclop,funlen,gocognit
 func main() {
 	flag.Parse()
 
@@ -206,9 +206,29 @@ func main() {
 		}
 	}()
 
-	log.Println("listening for upload events on stream 'uploads'...")
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Printf("failed to get hostname: %v", err)
 
-	lastID := "0-0"
+		return
+	}
+
+	consumerGroup := "processors"
+	consumerName := hostname
+
+	createGroupErr := valkeyClient.Do(ctx, valkeyClient.B().XgroupCreate().
+		Key("uploads").
+		Group(consumerGroup).
+		Id("0").
+		Mkstream().
+		Build()).Error()
+	if createGroupErr != nil && createGroupErr.Error() != "BUSYGROUP Consumer Group name already exists" {
+		log.Printf("failed to create consumer group: %v", createGroupErr)
+
+		return
+	}
+
+	log.Printf("listening for upload events as consumer '%s' in group '%s'", consumerName, consumerGroup)
 
 	for {
 		select {
@@ -219,11 +239,12 @@ func main() {
 		default:
 		}
 
-		response := valkeyClient.Do(ctx, valkeyClient.B().Xread().
+		response := valkeyClient.Do(ctx, valkeyClient.B().Xreadgroup().
+			Group(consumerGroup, consumerName).
 			Block(1000).
 			Streams().
 			Key("uploads").
-			Id(lastID).
+			Id(">").
 			Build())
 
 		if ctx.Err() != nil {
@@ -253,9 +274,18 @@ func main() {
 				processErr := processUpload(ctx, uploadID)
 				if processErr != nil {
 					log.Printf("error processing upload %s: %v", uploadID, processErr)
+
+					continue
 				}
 
-				lastID = message.ID
+				ackErr := valkeyClient.Do(ctx, valkeyClient.B().Xack().
+					Key("uploads").
+					Group(consumerGroup).
+					Id(message.ID).
+					Build()).Error()
+				if ackErr != nil {
+					log.Printf("failed to ack message %s: %v", message.ID, ackErr)
+				}
 			}
 		}
 	}

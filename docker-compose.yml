@@ -17,8 +17,6 @@ services:
       dockerfile: services/image-receiver/Dockerfile
     tmpfs:
       - /data:size=256M,mode=0755
-    ports:
-      - 3001:3000
   image-processor:
     depends_on:
       valkey:
@@ -28,8 +26,8 @@ services:
       dockerfile: services/image-processor/Dockerfile
     tmpfs:
       - /data:size=256M,mode=0755
-    ports:
-      - 3002:3000
+    deploy:
+      replicas: 3
 
 networks:
   default:
