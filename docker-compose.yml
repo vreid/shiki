@@ -1,5 +1,17 @@
 services:
+  valkey:
+    image: valkey/valkey:8-alpine
+    tmpfs:
+      - /data:size=256M,mode=0755
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
   image-receiver:
+    depends_on:
+      valkey:
+        condition: service_healthy
     build:
       context: .
       dockerfile: services/image-receiver/Dockerfile
@@ -8,9 +20,16 @@ services:
     ports:
       - 3001:3000
   image-processor:
+    depends_on:
+      valkey:
+        condition: service_healthy
     build:
       context: .
       dockerfile: services/image-processor/Dockerfile
+    tmpfs:
+      - /data:size=256M,mode=0755
+    ports:
+      - 3002:3000
 
 networks:
   default:

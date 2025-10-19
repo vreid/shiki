@@ -8,16 +8,21 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/valkey-io/valkey-go"
 )
 
 var (
-	port    = flag.Int("port", 3000, "")
-	dataDir = flag.String("data-dir", "/data", "")
+	port       = flag.Int("port", 3000, "")
+	dataDir    = flag.String("data-dir", "/data", "")
+	valkeyAddr = flag.String("valkey-addr", "valkey:6379", "")
+
+	valkeyClient valkey.Client
 )
 
 //nolint:tagliatelle
@@ -27,7 +32,7 @@ type UploadIndex struct {
 	Files     []string  `json:"files"`
 }
 
-//nolint:funlen
+//nolint:cyclop,funlen
 func upload(c echo.Context) error {
 	form, err := c.MultipartForm()
 	if err != nil {
@@ -97,6 +102,20 @@ func upload(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to write index file")
 	}
 
+	ctx := c.Request().Context()
+
+	err = valkeyClient.Do(ctx, valkeyClient.B().Xadd().
+		Key("uploads").
+		Id("*").
+		FieldValue().
+		FieldValue("upload_id", uploadID).
+		FieldValue("timestamp", strconv.FormatInt(index.Timestamp.Unix(), 10)).
+		FieldValue("files", strconv.Itoa(len(index.Files))).
+		Build()).Error()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to publish upload event")
+	}
+
 	//nolint:wrapcheck
 	return c.JSON(http.StatusAccepted, uploadID)
 }
@@ -104,17 +123,28 @@ func upload(c echo.Context) error {
 func main() {
 	flag.Parse()
 
+	var err error
+
+	valkeyClient, err = valkey.NewClient(valkey.ClientOption{
+		InitAddress: []string{*valkeyAddr},
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	defer valkeyClient.Close()
+
 	e := echo.New()
 
 	e.HideBanner = true
 	e.HidePort = true
 
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
-		Format: "${id} ${remote_ip} ${method} ${path} ${status} ${error} ${latency_human} ${bytes_in} ${bytes_out}\n",
+		Format: "${id} ${remote_ip} ${status} ${method} ${path} ${error} ${latency_human} ${bytes_in} ${bytes_out}\n",
 	}))
 	e.Use(middleware.Recover())
 
-	e.Static("/", "/data")
+	e.Static("/", *dataDir)
 	e.POST("/upload", upload)
 
 	e.Logger.Fatal(e.Start(fmt.Sprintf(":%d", *port)))

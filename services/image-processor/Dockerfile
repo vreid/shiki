@@ -33,9 +33,16 @@ FROM alpine:3.22
 RUN apk --no-cache add \
     bash \
     ca-certificates \
+    coreutils \
     exiftool \
     imagemagick \
-    jq
+    imagemagick-jpeg \
+    imagemagick-webp \
+    imagemagick-tiff \
+    jq \
+    tar \
+    util-linux \
+    xz
 
 WORKDIR /app/tools
 

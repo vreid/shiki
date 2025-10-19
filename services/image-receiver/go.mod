@@ -2,10 +2,13 @@ module github.com/vreid/shiki/services/image-receier
 
 go 1.25
 
-require github.com/labstack/echo/v4 v4.13.4
+require (
+	github.com/google/uuid v1.6.0
+	github.com/labstack/echo/v4 v4.13.4
+	github.com/valkey-io/valkey-go v1.0.67
+)
 
 require (
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
