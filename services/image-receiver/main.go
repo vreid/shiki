@@ -32,6 +32,24 @@ type UploadIndex struct {
 	Files     []string  `json:"files"`
 }
 
+func list(c echo.Context) error {
+	entries, err := os.ReadDir(*dataDir)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to read data directory")
+	}
+
+	directories := make([]string, 0)
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			directories = append(directories, entry.Name())
+		}
+	}
+
+	//nolint:wrapcheck
+	return c.JSON(http.StatusOK, directories)
+}
+
 //nolint:cyclop,funlen
 func upload(c echo.Context) error {
 	form, err := c.MultipartForm()
@@ -144,8 +162,9 @@ func main() {
 	}))
 	e.Use(middleware.Recover())
 
-	e.Static("/", *dataDir)
+	e.GET("/", list)
 	e.POST("/upload", upload)
+	e.Static("/", *dataDir)
 
 	e.Logger.Fatal(e.Start(fmt.Sprintf(":%d", *port)))
 }

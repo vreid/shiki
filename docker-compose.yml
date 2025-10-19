@@ -8,6 +8,7 @@ services:
       interval: 1s
       timeout: 3s
       retries: 30
+
   image-receiver:
     depends_on:
       valkey:
@@ -17,6 +18,13 @@ services:
       dockerfile: services/image-receiver/Dockerfile
     tmpfs:
       - /data:size=256M,mode=0755
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.image-receiver.rule=PathPrefix(`/receiver`)
+      - traefik.http.services.image-receiver.loadbalancer.server.port=3000
+      - traefik.http.middlewares.image-receiver-strip.stripprefix.prefixes=/receiver
+      - traefik.http.routers.image-receiver.middlewares=image-receiver-strip
+
   image-processor:
     depends_on:
       valkey:
@@ -28,6 +36,24 @@ services:
       - /data:size=256M,mode=0755
     deploy:
       replicas: 3
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.image-processor.rule=PathPrefix(`/processor`)
+      - traefik.http.services.image-processor.loadbalancer.server.port=3000
+      - traefik.http.middlewares.image-processor-strip.stripprefix.prefixes=/processor
+      - traefik.http.routers.image-processor.middlewares=image-processor-strip
+
+  traefik:
+    image: traefik:3
+    command:
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+    ports:
+      - 3000:80
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
 
 networks:
   default:
