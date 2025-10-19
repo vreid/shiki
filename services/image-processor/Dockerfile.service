@@ -1,0 +1,47 @@
+FROM golang:1.25-alpine AS build
+
+WORKDIR /workspace
+
+COPY .golangci.yml go.work go.work.sum ./
+
+ARG LIBRARY_DIR="libs/go"
+WORKDIR /workspace/${LIBRARY_DIR}
+
+COPY ${LIBRARY_DIR}/go.mod ${LIBRARY_DIR}/go.sum ./
+COPY ${LIBRARY_DIR}/ ./
+
+ARG SERVICE_DIR="services/image-processor"
+WORKDIR /workspace/${SERVICE_DIR}
+
+COPY ${SERVICE_DIR}/go.mod ${SERVICE_DIR}/go.sum ./
+
+RUN go mod download
+
+COPY ${SERVICE_DIR}/ ./
+
+ARG CGO_ENABLED=0
+RUN go build \
+    -ldflags="-s -w" \
+    -trimpath \
+    -o server \
+    .
+
+FROM alpine:3.22
+
+RUN apk --no-cache add \
+    bash \
+    ca-certificates \
+    exiftool \
+    imagemagick \
+    jq
+
+WORKDIR /app/tools
+
+COPY tools/process-image.sh .
+
+WORKDIR /app
+
+ARG SERVICE_DIR
+COPY --from=build /workspace/${SERVICE_DIR}/server .
+
+CMD ["./server"]

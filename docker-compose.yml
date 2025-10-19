@@ -2,10 +2,14 @@ services:
   image-processor:
     build:
       context: .
-      dockerfile: docker/go/Dockerfile.service
+      dockerfile: services/image-processor/Dockerfile.service
       args:
         SERVICE_DIR: services/image-processor
         LIBRARY_DIR: libs/go
+    volumes:
+      - ./data/image-processor:/data
+    ports:
+      - 50051:50051
 
 networks:
   default:
