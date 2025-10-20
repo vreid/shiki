@@ -134,7 +134,7 @@ func processUpload(ctx context.Context, uploadID string) error {
 		scriptPath := filepath.Join(*scriptDir, "process-image.sh")
 
 		//nolint:gosec,noctx
-		cmd := exec.Command(scriptPath, localPath)
+		cmd := exec.Command(scriptPath, localPath, *dataDir)
 		cmd.Dir = *dataDir
 
 		output, err := cmd.Output()

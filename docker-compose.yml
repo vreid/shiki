@@ -32,8 +32,8 @@ services:
     build:
       context: .
       dockerfile: services/image-processor/Dockerfile
-    tmpfs:
-      - /data:size=256M,mode=0755
+    volumes:
+      - ./data/image-processor:/data
     deploy:
       replicas: 3
     labels:

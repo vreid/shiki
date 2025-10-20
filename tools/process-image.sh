@@ -11,7 +11,12 @@ if [ -z "${1:-}" ]; then
     error_exit "no input file specified"
 fi
 
+if [ -z "${2:-}" ]; then
+    error_exit "no data directory specified"
+fi
+
 INPUT="${1}"
+DATA_DIR="${2}"
 
 if [ ! -f "${INPUT}" ]; then
     error_exit "input file does not exist"
@@ -49,10 +54,15 @@ SHA256_WEBP="$(sha256sum "${SHA256}.webp" | awk '{print $1}')" ||
 UUID="$(uuidgen -s -N "${SHA256_WEBP}" -n @oid)" ||
     error_exit "failed to generate uuid"
 
-if [ -f "../${UUID}.tar.xz" ]; then
+UUID_DIR="${DATA_DIR}/${UUID}"
+
+if [ -d "${UUID_DIR}" ]; then
     jq -n --arg success "${UUID}" '{"success": $success}'
     exit 0
 fi
+
+mkdir -p "${UUID_DIR}" ||
+    error_exit "failed to create uuid directory"
 
 mv "${SHA256}.webp" "${UUID}.webp" ||
     error_exit "failed to rename webp"
@@ -111,7 +121,7 @@ jq -n \
     }' >metadata.json ||
     error_exit "failed to generate metadata"
 
-TAR_ERR=$(tar -cJf "../${UUID}.tar.xz" -C . . 2>&1) ||
-    error_exit "failed to create archive: ${TAR_ERR}"
+mv ./* "${UUID_DIR}/" ||
+    error_exit "failed to move files to uuid directory"
 
 jq -n --arg success "${UUID}" '{"success": $success}'
