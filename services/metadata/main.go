@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	"github.com/valkey-io/valkey-go"
 	"go.etcd.io/bbolt"
 )
@@ -24,6 +26,7 @@ var (
 	processorURL = flag.String("processor-url", "http://traefik/processor", "")
 	valkeyAddr   = flag.String("valkey-addr", "valkey:6379", "")
 	dataDir      = flag.String("data-dir", "/data", "")
+	port         = flag.Int("port", 3000, "")
 )
 
 //nolint:tagliatelle
@@ -71,7 +74,31 @@ func fetchMetadata(ctx context.Context, uuid string) (*Metadata, error) {
 	return &metadata, nil
 }
 
-//nolint:cyclop,funlen
+func list(db *bbolt.DB) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		var uuids []string
+
+		err := db.View(func(tx *bbolt.Tx) error {
+			bucket := tx.Bucket([]byte("metadata"))
+			if bucket == nil {
+				return nil
+			}
+
+			return bucket.ForEach(func(k, _ []byte) error {
+				uuids = append(uuids, string(k))
+
+				return nil
+			})
+		})
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to list UUIDs")
+		}
+
+		return c.JSONPretty(http.StatusOK, uuids, "  ")
+	}
+}
+
+//nolint:cyclop,funlen,gocognit
 func main() {
 	flag.Parse()
 
@@ -81,14 +108,23 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to open database: %v", err)
 	}
-	defer db.Close()
+
+	defer func() {
+		_ = db.Close()
+	}()
 
 	err = db.Update(func(tx *bbolt.Tx) error {
 		_, createErr := tx.CreateBucketIfNotExists([]byte("metadata"))
-		return createErr
+		if createErr != nil {
+			return fmt.Errorf("failed to create bucket: %w", createErr)
+		}
+
+		return nil
 	})
 	if err != nil {
-		log.Fatalf("failed to create bucket: %v", err)
+		log.Printf("failed to create bucket: %v", err)
+
+		return
 	}
 
 	valkeyClient, err := valkey.NewClient(valkey.ClientOption{
@@ -101,6 +137,25 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	e := echo.New()
+	e.HideBanner = true
+	e.HidePort = true
+	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+		Format: "${id} ${remote_ip} ${status} ${method} ${path} ${error} ${latency_human} ${bytes_in} ${bytes_out}\n",
+	}))
+	e.Use(middleware.Recover())
+
+	e.GET("/", list(db))
+
+	go func() {
+		log.Printf("starting HTTP server on :%d", *port)
+
+		startErr := e.Start(fmt.Sprintf(":%d", *port))
+		if startErr != nil && !errors.Is(startErr, http.ErrServerClosed) {
+			log.Printf("HTTP server error: %v", startErr)
+		}
+	}()
 
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -175,6 +230,7 @@ func main() {
 				}
 
 				isNew := false
+
 				storeErr := db.Update(func(tx *bbolt.Tx) error {
 					bucket := tx.Bucket([]byte("metadata"))
 
@@ -188,6 +244,7 @@ func main() {
 					if existingData != nil {
 						if string(existingData) == string(metadataJSON) {
 							log.Printf("metadata for %s already exists and is identical, skipping", uuid)
+
 							return nil
 						}
 

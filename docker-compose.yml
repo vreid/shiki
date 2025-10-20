@@ -52,6 +52,12 @@ services:
       dockerfile: services/metadata/Dockerfile
     volumes:
       - ./data/metadata:/data
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.metadata.rule=PathPrefix(`/metadata`)
+      - traefik.http.services.metadata.loadbalancer.server.port=3000
+      - traefik.http.middlewares.metadata-strip.stripprefix.prefixes=/metadata
+      - traefik.http.routers.metadata.middlewares=metadata-strip
 
   storage:
     depends_on:
