@@ -129,7 +129,7 @@ func storeImage(ctx context.Context, uuid string) error {
 		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
 
-	listURL := fmt.Sprintf("%s/list/%s", *processorURL, uuid)
+	listURL := fmt.Sprintf("%s/%s", *processorURL, uuid)
 	listing, err := listDirectory(ctx, listURL)
 	if err != nil {
 		return fmt.Errorf("failed to list directory: %w", err)
@@ -151,7 +151,7 @@ func storeImage(ctx context.Context, uuid string) error {
 		log.Printf("downloaded %s/%s", uuid, entry.Name)
 	}
 
-	deleteURL := fmt.Sprintf("%s/delete/%s", *processorURL, uuid)
+	deleteURL := fmt.Sprintf("%s/%s", *processorURL, uuid)
 	err = deleteDirectory(ctx, deleteURL)
 	if err != nil {
 		log.Printf("warning: failed to delete source directory %s: %v", uuid, err)

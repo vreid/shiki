@@ -260,8 +260,9 @@ func main() {
 	}))
 	e.Use(middleware.Recover())
 
-	e.GET("/list/:uuid", listDirectory)
-	e.DELETE("/delete/:uuid", deleteDirectory)
+	e.GET("/:uuid", listDirectory)
+	e.DELETE("/:uuid", deleteDirectory)
+
 	e.Static("/files", *dataDir)
 
 	go func() {
@@ -357,7 +358,7 @@ func main() {
 					continue
 				}
 
-				deleteURL := fmt.Sprintf("%s/delete/%s", *receiverURL, uploadID)
+				deleteURL := fmt.Sprintf("%s/%s", *receiverURL, uploadID)
 				deleteReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, deleteURL, nil)
 				if err != nil {
 					log.Printf("failed to create delete request for %s: %v", uploadID, err)

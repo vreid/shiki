@@ -182,9 +182,10 @@ func main() {
 	}))
 	e.Use(middleware.Recover())
 
-	e.GET("/list", list)
 	e.POST("/upload", upload)
-	e.DELETE("/delete/:id", deleteUpload)
+	e.GET("/", list)
+	e.DELETE("/:id", deleteUpload)
+
 	e.Static("/files", *dataDir)
 
 	e.Logger.Fatal(e.Start(fmt.Sprintf(":%d", *port)))
