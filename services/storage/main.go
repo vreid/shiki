@@ -13,12 +13,15 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	"github.com/valkey-io/valkey-go"
 )
 
 var (
 	processorURL = flag.String("processor-url", "http://traefik/processor", "")
 	valkeyAddr   = flag.String("valkey-addr", "valkey:6379", "")
+	port         = flag.Int("port", 3000, "")
 	dataDir      = flag.String("data-dir", "/data", "")
 )
 
@@ -164,6 +167,31 @@ func storeImage(ctx context.Context, uuid string) error {
 	return nil
 }
 
+func serveImage(c echo.Context) error {
+	uuid := c.Param("uuid")
+	size := c.Param("size")
+
+	if uuid == "" || size == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "uuid and size are required")
+	}
+
+	var filename string
+	if size == "1024" {
+		filename = fmt.Sprintf("%s_%s.webp", uuid, size)
+	} else {
+		filename = fmt.Sprintf("%s_%s_50.webp", uuid, size)
+	}
+
+	imagePath := filepath.Join(*dataDir, uuid, filename)
+
+	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
+		return echo.NewHTTPError(http.StatusNotFound, "image not found")
+	}
+
+	//nolint:wrapcheck
+	return c.File(imagePath)
+}
+
 func main() {
 	flag.Parse()
 
@@ -177,6 +205,25 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	e := echo.New()
+
+	e.HideBanner = true
+	e.HidePort = true
+
+	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+		Format: "${id} ${remote_ip} ${status} ${method} ${path} ${error} ${latency_human} ${bytes_in} ${bytes_out}\n",
+	}))
+	e.Use(middleware.Recover())
+
+	e.GET("/image/:uuid/:size", serveImage)
+
+	go func() {
+		log.Printf("starting HTTP server on :%d", *port)
+		if err := e.Start(fmt.Sprintf(":%d", *port)); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", err)
+		}
+	}()
 
 	hostname, err := os.Hostname()
 	if err != nil {

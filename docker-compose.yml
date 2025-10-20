@@ -62,6 +62,12 @@ services:
       dockerfile: services/storage/Dockerfile
     volumes:
       - ./data/storage:/data
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.storage.rule=PathPrefix(`/storage`)
+      - traefik.http.services.storage.loadbalancer.server.port=3000
+      - traefik.http.middlewares.storage-strip.stripprefix.prefixes=/storage
+      - traefik.http.routers.storage.middlewares=storage-strip
 
   traefik:
     image: traefik:3
