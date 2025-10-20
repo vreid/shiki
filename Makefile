@@ -18,7 +18,7 @@ build:
 
 test:
 	cd services/metadata && go test ./...
-	cd services/image-processor && go test ./...
+	cd services/processor && go test ./...
 	cd services/voting && go test ./...
 	cd services/search && npm test
 
@@ -36,5 +36,5 @@ stop:
 	docker compose stop
 
 # individual service commands
-image-logs:
-	docker compose logs -f image-processor
+processor-logs:
+	docker compose logs -f processor

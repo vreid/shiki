@@ -9,39 +9,39 @@ services:
       timeout: 3s
       retries: 30
 
-  image-receiver:
+  receiver:
     depends_on:
       valkey:
         condition: service_healthy
     build:
       context: .
-      dockerfile: services/image-receiver/Dockerfile
-    tmpfs:
-      - /data:size=256M,mode=0755
+      dockerfile: services/receiver/Dockerfile
+    volumes:
+      - ./data/receiver:/data
     labels:
       - traefik.enable=true
-      - traefik.http.routers.image-receiver.rule=PathPrefix(`/receiver`)
-      - traefik.http.services.image-receiver.loadbalancer.server.port=3000
-      - traefik.http.middlewares.image-receiver-strip.stripprefix.prefixes=/receiver
-      - traefik.http.routers.image-receiver.middlewares=image-receiver-strip
+      - traefik.http.routers.receiver.rule=PathPrefix(`/receiver`)
+      - traefik.http.services.receiver.loadbalancer.server.port=3000
+      - traefik.http.middlewares.receiver-strip.stripprefix.prefixes=/receiver
+      - traefik.http.routers.receiver.middlewares=receiver-strip
 
-  image-processor:
+  processor:
     depends_on:
       valkey:
         condition: service_healthy
     build:
       context: .
-      dockerfile: services/image-processor/Dockerfile
+      dockerfile: services/processor/Dockerfile
     volumes:
-      - ./data/image-processor:/data
+      - ./data/processor:/data
     deploy:
       replicas: 3
     labels:
       - traefik.enable=true
-      - traefik.http.routers.image-processor.rule=PathPrefix(`/processor`)
-      - traefik.http.services.image-processor.loadbalancer.server.port=3000
-      - traefik.http.middlewares.image-processor-strip.stripprefix.prefixes=/processor
-      - traefik.http.routers.image-processor.middlewares=image-processor-strip
+      - traefik.http.routers.processor.rule=PathPrefix(`/processor`)
+      - traefik.http.services.processor.loadbalancer.server.port=3000
+      - traefik.http.middlewares.processor-strip.stripprefix.prefixes=/processor
+      - traefik.http.routers.processor.middlewares=processor-strip
 
   metadata:
     depends_on:
