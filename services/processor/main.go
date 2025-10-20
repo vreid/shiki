@@ -45,6 +45,68 @@ type ScriptResult struct {
 
 var ErrScriptFailed = errors.New("script execution failed")
 
+//nolint:tagliatelle
+type DirectoryEntry struct {
+	Name  string `json:"name"`
+	IsDir bool   `json:"isDir"`
+	Size  int64  `json:"size"`
+}
+
+func listDirectory(c echo.Context) error {
+	uuid := c.Param("uuid")
+	if uuid == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "uuid is required")
+	}
+
+	dirPath := filepath.Join(*dataDir, uuid)
+
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "directory not found")
+		}
+
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to read directory")
+	}
+
+	result := make([]DirectoryEntry, 0, len(entries))
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		result = append(result, DirectoryEntry{
+			Name:  entry.Name(),
+			IsDir: entry.IsDir(),
+			Size:  info.Size(),
+		})
+	}
+
+	//nolint:wrapcheck
+	return c.JSON(http.StatusOK, result)
+}
+
+func deleteDirectory(c echo.Context) error {
+	uuid := c.Param("uuid")
+	if uuid == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "uuid is required")
+	}
+
+	dirPath := filepath.Join(*dataDir, uuid)
+
+	err := os.RemoveAll(dirPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "directory not found")
+		}
+
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to delete directory")
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
 func downloadFile(ctx context.Context, url, filepath string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -84,7 +146,7 @@ func downloadFile(ctx context.Context, url, filepath string) error {
 
 //nolint:cyclop,funlen
 func processUpload(ctx context.Context, uploadID string) error {
-	indexURL := fmt.Sprintf("%s/%s/index.json", *receiverURL, uploadID)
+	indexURL := fmt.Sprintf("%s/files/%s/index.json", *receiverURL, uploadID)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, indexURL, nil)
 	if err != nil {
@@ -123,7 +185,7 @@ func processUpload(ctx context.Context, uploadID string) error {
 	}()
 
 	for _, filename := range index.Files {
-		fileURL := fmt.Sprintf("%s/%s/%s", *receiverURL, uploadID, filename)
+		fileURL := fmt.Sprintf("%s/files/%s/%s", *receiverURL, uploadID, filename)
 		localPath := filepath.Join(tempDir, filename)
 
 		err = downloadFile(ctx, fileURL, localPath)
@@ -198,7 +260,9 @@ func main() {
 	}))
 	e.Use(middleware.Recover())
 
-	e.Static("/", *dataDir)
+	e.GET("/list/:uuid", listDirectory)
+	e.DELETE("/delete/:uuid", deleteDirectory)
+	e.Static("/files", *dataDir)
 
 	go func() {
 		startErr := e.Start(fmt.Sprintf(":%d", *port))
@@ -293,7 +357,7 @@ func main() {
 					continue
 				}
 
-				deleteURL := fmt.Sprintf("%s/%s", *receiverURL, uploadID)
+				deleteURL := fmt.Sprintf("%s/delete/%s", *receiverURL, uploadID)
 				deleteReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, deleteURL, nil)
 				if err != nil {
 					log.Printf("failed to create delete request for %s: %v", uploadID, err)

@@ -36,7 +36,7 @@ type Metadata struct {
 }
 
 func fetchMetadata(ctx context.Context, uuid string) (*Metadata, error) {
-	metadataURL := fmt.Sprintf("%s/%s/metadata.json", *processorURL, uuid)
+	metadataURL := fmt.Sprintf("%s/files/%s/metadata.json", *processorURL, uuid)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metadataURL, nil)
 	if err != nil {

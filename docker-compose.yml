@@ -53,6 +53,16 @@ services:
     volumes:
       - ./data/metadata:/data
 
+  storage:
+    depends_on:
+      valkey:
+        condition: service_healthy
+    build:
+      context: .
+      dockerfile: services/storage/Dockerfile
+    volumes:
+      - ./data/storage:/data
+
   traefik:
     image: traefik:3
     command:
