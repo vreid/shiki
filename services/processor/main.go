@@ -293,6 +293,24 @@ func main() {
 					continue
 				}
 
+				deleteURL := fmt.Sprintf("%s/%s", *receiverURL, uploadID)
+				deleteReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, deleteURL, nil)
+				if err != nil {
+					log.Printf("failed to create delete request for %s: %v", uploadID, err)
+				} else {
+					deleteResp, err := http.DefaultClient.Do(deleteReq)
+					if err != nil {
+						log.Printf("failed to delete upload %s: %v", uploadID, err)
+					} else {
+						_ = deleteResp.Body.Close()
+						if deleteResp.StatusCode == http.StatusNoContent {
+							log.Printf("deleted upload %s from receiver", uploadID)
+						} else {
+							log.Printf("failed to delete upload %s: status %d", uploadID, deleteResp.StatusCode)
+						}
+					}
+				}
+
 				ackErr := valkeyClient.Do(ctx, valkeyClient.B().Xack().
 					Key("uploads").
 					Group(consumerGroup).

@@ -32,6 +32,26 @@ type UploadIndex struct {
 	Files     []string  `json:"files"`
 }
 
+func deleteUpload(c echo.Context) error {
+	uploadID := c.Param("id")
+	if uploadID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "upload_id is required")
+	}
+
+	uploadDir := filepath.Join(*dataDir, uploadID)
+
+	err := os.RemoveAll(uploadDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "upload not found")
+		}
+
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to delete upload")
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
 func list(c echo.Context) error {
 	entries, err := os.ReadDir(*dataDir)
 	if err != nil {
@@ -164,6 +184,7 @@ func main() {
 
 	e.GET("/", list)
 	e.POST("/upload", upload)
+	e.DELETE("/:id", deleteUpload)
 	e.Static("/", *dataDir)
 
 	e.Logger.Fatal(e.Start(fmt.Sprintf(":%d", *port)))
