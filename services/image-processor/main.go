@@ -27,6 +27,8 @@ var (
 	scriptDir        = flag.String("script-dir", "/app/tools", "")
 	imageReceiverURL = flag.String("image-receiver-url", "http://image-receiver:3000", "")
 	valkeyAddr       = flag.String("valkey-addr", "valkey:6379", "")
+
+	valkeyClient valkey.Client
 )
 
 //nolint:tagliatelle
@@ -154,6 +156,16 @@ func processUpload(ctx context.Context, uploadID string) error {
 		}
 
 		log.Printf("processed %s: uuid=%s", filename, result.Success)
+
+		publishErr := valkeyClient.Do(ctx, valkeyClient.B().Xadd().
+			Key("processed").
+			Id("*").
+			FieldValue().
+			FieldValue("uuid", result.Success).
+			Build()).Error()
+		if publishErr != nil {
+			return fmt.Errorf("failed to publish processed image %s: %w", result.Success, publishErr)
+		}
 	}
 
 	return nil
@@ -163,7 +175,9 @@ func processUpload(ctx context.Context, uploadID string) error {
 func main() {
 	flag.Parse()
 
-	valkeyClient, err := valkey.NewClient(valkey.ClientOption{
+	var err error
+
+	valkeyClient, err = valkey.NewClient(valkey.ClientOption{
 		InitAddress: []string{*valkeyAddr},
 	})
 	if err != nil {
