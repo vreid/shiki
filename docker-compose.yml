@@ -43,6 +43,14 @@ services:
       - traefik.http.middlewares.image-processor-strip.stripprefix.prefixes=/processor
       - traefik.http.routers.image-processor.middlewares=image-processor-strip
 
+  metadata:
+    depends_on:
+      valkey:
+        condition: service_healthy
+    build:
+      context: .
+      dockerfile: services/metadata/Dockerfile
+
   traefik:
     image: traefik:3
     command:
