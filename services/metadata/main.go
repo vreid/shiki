@@ -138,6 +138,38 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	log.Println("clearing and populating UUIDs set in Valkey...")
+	err = valkeyClient.Do(ctx, valkeyClient.B().Del().Key("metadata:assets").Build()).Error()
+	if err != nil {
+		log.Printf("failed to clear UUIDs set: %v", err)
+		return
+	}
+
+	var uuidCount int
+	err = db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket([]byte("metadata"))
+		if bucket == nil {
+			return nil
+		}
+
+		return bucket.ForEach(func(k, _ []byte) error {
+			addErr := valkeyClient.Do(ctx, valkeyClient.B().Sadd().
+				Key("metadata:assets").
+				Member(string(k)).
+				Build()).Error()
+			if addErr != nil {
+				return fmt.Errorf("failed to add uuid to set: %w", addErr)
+			}
+			uuidCount++
+			return nil
+		})
+	})
+	if err != nil {
+		log.Printf("failed to populate UUIDs set: %v", err)
+		return
+	}
+	log.Printf("populated %d UUIDs into Valkey set", uuidCount)
+
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
@@ -264,6 +296,14 @@ func main() {
 				log.Printf("stored metadata for %s", uuid)
 
 				if isNew {
+					addErr := valkeyClient.Do(ctx, valkeyClient.B().Sadd().
+						Key("metadata:assets").
+						Member(uuid).
+						Build()).Error()
+					if addErr != nil {
+						log.Printf("failed to add uuid %s to set: %v", uuid, addErr)
+					}
+
 					publishErr := valkeyClient.Do(ctx, valkeyClient.B().Xadd().
 						Key("metadata-ready").
 						Id("*").
