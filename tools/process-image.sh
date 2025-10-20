@@ -24,7 +24,6 @@ fi
 
 TEMP="$(mktemp -d -p .)" ||
     error_exit "failed to create temp directory"
-trap 'rm -rf "${TEMP}"' EXIT
 
 SHA256=$(sha256sum "${INPUT}" | awk '{print $1}') ||
     error_exit "failed to compute sha256"
@@ -123,5 +122,11 @@ jq -n \
 
 mv ./* "${UUID_DIR}/" ||
     error_exit "failed to move files to uuid directory"
+
+cd - >/dev/null ||
+    error_exit "failed to return to previous directory"
+
+rm -rf "${TEMP}" ||
+    error_exit "failed to remove temp directory"
 
 jq -n --arg success "${UUID}" '{"success": $success}'

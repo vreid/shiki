@@ -11,9 +11,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/valkey-io/valkey-go"
+	"go.etcd.io/bbolt"
 )
 
 var ErrBadStatus = errors.New("bad status")
@@ -21,6 +23,7 @@ var ErrBadStatus = errors.New("bad status")
 var (
 	imageProcessorURL = flag.String("image-processor-url", "http://traefik/processor", "")
 	valkeyAddr        = flag.String("valkey-addr", "valkey:6379", "")
+	dataDir           = flag.String("data-dir", "/data", "")
 )
 
 //nolint:tagliatelle
@@ -71,6 +74,22 @@ func fetchMetadata(ctx context.Context, uuid string) (*Metadata, error) {
 //nolint:cyclop,funlen
 func main() {
 	flag.Parse()
+
+	dbPath := filepath.Join(*dataDir, "metadata.db")
+
+	db, err := bbolt.Open(dbPath, 0600, nil)
+	if err != nil {
+		log.Fatalf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	err = db.Update(func(tx *bbolt.Tx) error {
+		_, createErr := tx.CreateBucketIfNotExists([]byte("metadata"))
+		return createErr
+	})
+	if err != nil {
+		log.Fatalf("failed to create bucket: %v", err)
+	}
 
 	valkeyClient, err := valkey.NewClient(valkey.ClientOption{
 		InitAddress: []string{*valkeyAddr},
@@ -155,9 +174,51 @@ func main() {
 					continue
 				}
 
-				//nolint:errchkjson
-				metadataJSON, _ := json.MarshalIndent(metadata, "", "  ")
-				log.Printf("metadata for %s:\n%s", uuid, string(metadataJSON))
+				isNew := false
+				storeErr := db.Update(func(tx *bbolt.Tx) error {
+					bucket := tx.Bucket([]byte("metadata"))
+
+					existingData := bucket.Get([]byte(uuid))
+
+					metadataJSON, marshalErr := json.Marshal(metadata)
+					if marshalErr != nil {
+						return fmt.Errorf("failed to marshal metadata: %w", marshalErr)
+					}
+
+					if existingData != nil {
+						if string(existingData) == string(metadataJSON) {
+							log.Printf("metadata for %s already exists and is identical, skipping", uuid)
+							return nil
+						}
+
+						log.Printf("WARNING: metadata for %s already exists but differs from new metadata", uuid)
+					} else {
+						isNew = true
+					}
+
+					return bucket.Put([]byte(uuid), metadataJSON)
+				})
+				if storeErr != nil {
+					log.Printf("error storing metadata for %s: %v", uuid, storeErr)
+
+					continue
+				}
+
+				log.Printf("stored metadata for %s", uuid)
+
+				if isNew {
+					publishErr := valkeyClient.Do(ctx, valkeyClient.B().Xadd().
+						Key("metadata-ready").
+						Id("*").
+						FieldValue().
+						FieldValue("uuid", uuid).
+						Build()).Error()
+					if publishErr != nil {
+						log.Printf("failed to publish uuid %s to metadata-ready stream: %v", uuid, publishErr)
+					} else {
+						log.Printf("published uuid %s to metadata-ready stream", uuid)
+					}
+				}
 
 				ackErr := valkeyClient.Do(ctx, valkeyClient.B().Xack().
 					Key("processed").
