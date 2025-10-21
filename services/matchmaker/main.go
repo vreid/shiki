@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,17 +19,21 @@ import (
 )
 
 const (
-	Difficulty = 4
-	Opponents  = 3
-
+	BaseDifficulty     = 0
+	Opponents          = 3
 	TokenMaxAgeMinutes = 5
+
+	BaseRequestsPerMinute = 20
+	RateLimitWindow       = 60
 )
 
 var (
 	port       = flag.Int("port", 3000, "")
 	valkeyAddr = flag.String("valkey-addr", "valkey:6379", "")
 
-	assetsKey       = flag.String("assets-key", "metadata:assets", "")
+	assetsKey    = flag.String("assets-key", "metadata:assets", "")
+	ratelimitKey = flag.String("ratelimit-key", "matchmaker:ratelimit", "")
+
 	signatureSecret = flag.String("signature-secret", "secret", "")
 
 	valkeyClient valkey.Client
@@ -69,13 +75,13 @@ type Outcome struct {
 	// BrowserFingerprint *BrowserFingerprint `json:"browser_fingerprint,omitempty"`
 }
 
-func createMatchUp(opponents []string, signatureSecret []byte) (*SignedMatchUp, error) {
+func createMatchUp(opponents []string, signatureSecret []byte, difficulty int) (*SignedMatchUp, error) {
 	timestamp := time.Now().Unix()
 
 	matchUp := MatchUp{
 		Opponents:  []Opponent{},
 		Timestamp:  timestamp,
-		Difficulty: Difficulty,
+		Difficulty: difficulty,
 	}
 
 	for _, assetID := range opponents {
@@ -119,24 +125,85 @@ func computeHash(outcome Outcome) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+func hashIP(ip string) string {
+	h := sha256.New()
+	h.Write([]byte(ip))
+
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func calculateDifficulty(ctx context.Context, hash string) (int, error) {
+	key := fmt.Sprintf("%s:%s", *ratelimitKey, hash)
+
+	now := time.Now().Unix()
+	windowStart := now - RateLimitWindow
+
+	resps := valkeyClient.DoMulti(ctx,
+		valkeyClient.B().Zremrangebyscore().
+			Key(key).
+			Min("0").
+			Max(strconv.FormatInt(windowStart, 10)).
+			Build(),
+		valkeyClient.B().Zcard().
+			Key(key).
+			Build(),
+		valkeyClient.B().Zadd().
+			Key(key).
+			ScoreMember().
+			ScoreMember(float64(now), strconv.FormatInt(now, 10)).
+			Build(),
+		valkeyClient.B().Expire().
+			Key(key).
+			Seconds(RateLimitWindow*2).
+			Build(),
+	)
+
+	for _, resp := range resps {
+		if resp.Error() != nil {
+			return BaseDifficulty, fmt.Errorf("rate limit operation failed: %w", resp.Error())
+		}
+	}
+
+	count, err := resps[1].AsInt64()
+	if err != nil {
+		return BaseDifficulty, fmt.Errorf("failed to parse count: %w", err)
+	}
+
+	requestsPerMinute := float64(count) / (float64(RateLimitWindow) / 60.0)
+	if requestsPerMinute <= BaseRequestsPerMinute {
+		return BaseDifficulty, nil
+	}
+
+	difficulty := int((requestsPerMinute - BaseRequestsPerMinute) / BaseRequestsPerMinute)
+
+	return difficulty, nil
+}
+
 func VerifyProof(outcome Outcome) bool {
+	difficulty := outcome.SignedMatchUp.MatchUp.Difficulty
+	computed := computeHash(outcome)
+
+	if difficulty == 0 {
+		return computed == outcome.Hash
+	}
+
 	target := ""
-	for range Difficulty {
+	for range difficulty {
 		target += "0"
 	}
 
-	computed := computeHash(outcome)
-
 	return computed == outcome.Hash &&
-		len(outcome.Hash) >= Difficulty &&
-		outcome.Hash[:Difficulty] == target
+		len(outcome.Hash) >= difficulty &&
+		outcome.Hash[:difficulty] == target
 }
 
 func GetMatchUp(c echo.Context) error {
 	//nolint:forcetypeassert
 	cc := c.(*CustomContext)
-
 	ctx := cc.Request().Context()
+	ipHash := hashIP(cc.RealIP())
+
+	difficulty, _ := calculateDifficulty(ctx, ipHash)
 
 	cmd := valkeyClient.B().Srandmember().
 		Key(*assetsKey).
@@ -145,12 +212,16 @@ func GetMatchUp(c echo.Context) error {
 
 	opponents, err := valkeyClient.Do(ctx, cmd).AsStrSlice()
 	if err != nil {
-		return fmt.Errorf("failed to retrieve opponents: %w", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to retrieve opponents")
 	}
 
-	matchUp, err := createMatchUp(opponents, []byte(*signatureSecret))
+	if len(opponents) == 0 {
+		return echo.NewHTTPError(http.StatusTooEarly, "not enough assets available")
+	}
+
+	matchUp, err := createMatchUp(opponents, []byte(*signatureSecret), difficulty)
 	if err != nil {
-		return fmt.Errorf("failed to create match-up: %w", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create match-up")
 	}
 
 	//nolint:wrapcheck
@@ -211,6 +282,10 @@ func PostOutcome(c echo.Context) error {
 		}
 	}
 
+	ipHash := hashIP(cc.RealIP())
+
+	difficulty, _ := calculateDifficulty(ctx, ipHash)
+
 	cmd := valkeyClient.B().Srandmember().
 		Key(*assetsKey).
 		Count(Opponents).
@@ -221,7 +296,11 @@ func PostOutcome(c echo.Context) error {
 		return fmt.Errorf("failed to retrieve opponents: %w", err)
 	}
 
-	matchUp, err := createMatchUp(opponents, []byte(*signatureSecret))
+	if len(opponents) == 0 {
+		return echo.NewHTTPError(http.StatusTooEarly, "not enough assets available")
+	}
+
+	matchUp, err := createMatchUp(opponents, []byte(*signatureSecret), difficulty)
 	if err != nil {
 		return fmt.Errorf("failed to create match-up: %w", err)
 	}
