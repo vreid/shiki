@@ -75,6 +75,22 @@ services:
       - traefik.http.middlewares.storage-strip.stripprefix.prefixes=/storage
       - traefik.http.routers.storage.middlewares=storage-strip
 
+  matchmaker:
+    depends_on:
+      valkey:
+        condition: service_healthy
+    build:
+      context: .
+      dockerfile: services/matchmaker/Dockerfile
+    deploy:
+      replicas: 5
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.matchmaker.rule=PathPrefix(`/matchmaker`)
+      - traefik.http.services.matchmaker.loadbalancer.server.port=3000
+      - traefik.http.middlewares.matchmaker-strip.stripprefix.prefixes=/matchmaker
+      - traefik.http.routers.matchmaker.middlewares=matchmaker-strip
+
   traefik:
     image: traefik:3
     command:
