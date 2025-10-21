@@ -2,7 +2,7 @@ services:
   valkey:
     image: valkey/valkey:8-alpine
     tmpfs:
-      - /data:size=256M,mode=0755
+      - /data:size=512M,mode=0755
     healthcheck:
       test: ["CMD", "valkey-cli", "ping"]
       interval: 1s

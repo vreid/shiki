@@ -74,6 +74,77 @@ func fetchMetadata(ctx context.Context, uuid string) (*Metadata, error) {
 	return &metadata, nil
 }
 
+//nolint:cyclop,funlen
+func syncMetadata(ctx context.Context, db *bbolt.DB, valkeyClient valkey.Client) error {
+	log.Println("syncing UUIDs to Valkey...")
+
+	cmd := valkeyClient.B().Smembers().Key("metadata:assets").Build()
+
+	existingMembers, err := valkeyClient.Do(ctx, cmd).AsStrSlice()
+	if err != nil {
+		return fmt.Errorf("failed to get existing members: %w", err)
+	}
+
+	valkeySet := make(map[string]bool)
+	for _, member := range existingMembers {
+		valkeySet[member] = true
+	}
+
+	dbSet := make(map[string]bool)
+
+	err = db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket([]byte("metadata"))
+		if bucket == nil {
+			return nil
+		}
+
+		return bucket.ForEach(func(k, _ []byte) error {
+			dbSet[string(k)] = true
+
+			return nil
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("failed to read UUIDs from database: %w", err)
+	}
+
+	var added int
+
+	for uuid := range dbSet {
+		if !valkeySet[uuid] {
+			addErr := valkeyClient.Do(ctx, valkeyClient.B().Sadd().
+				Key("metadata:assets").
+				Member(uuid).
+				Build()).Error()
+			if addErr != nil {
+				return fmt.Errorf("failed to add uuid to set: %w", addErr)
+			}
+
+			added++
+		}
+	}
+
+	var removed int
+
+	for uuid := range valkeySet {
+		if !dbSet[uuid] {
+			remErr := valkeyClient.Do(ctx, valkeyClient.B().Srem().
+				Key("metadata:assets").
+				Member(uuid).
+				Build()).Error()
+			if remErr != nil {
+				return fmt.Errorf("failed to remove uuid from set: %w", remErr)
+			}
+
+			removed++
+		}
+	}
+
+	log.Printf("synced metadata:assets - added: %d, removed: %d, total: %d", added, removed, len(dbSet))
+
+	return nil
+}
+
 func list(db *bbolt.DB) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var uuids []string
@@ -98,7 +169,7 @@ func list(db *bbolt.DB) echo.HandlerFunc {
 	}
 }
 
-//nolint:cyclop,funlen,gocognit
+//nolint:cyclop,funlen,gocognit,maintidx
 func main() {
 	flag.Parse()
 
@@ -133,46 +204,24 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
 	defer valkeyClient.Close()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	log.Println("clearing and populating UUIDs set in Valkey...")
-	err = valkeyClient.Do(ctx, valkeyClient.B().Del().Key("metadata:assets").Build()).Error()
+	err = syncMetadata(ctx, db, valkeyClient)
 	if err != nil {
-		log.Printf("failed to clear UUIDs set: %v", err)
+		log.Printf("failed to load metadata to Valkey: %v", err)
+
 		return
 	}
-
-	var uuidCount int
-	err = db.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte("metadata"))
-		if bucket == nil {
-			return nil
-		}
-
-		return bucket.ForEach(func(k, _ []byte) error {
-			addErr := valkeyClient.Do(ctx, valkeyClient.B().Sadd().
-				Key("metadata:assets").
-				Member(string(k)).
-				Build()).Error()
-			if addErr != nil {
-				return fmt.Errorf("failed to add uuid to set: %w", addErr)
-			}
-			uuidCount++
-			return nil
-		})
-	})
-	if err != nil {
-		log.Printf("failed to populate UUIDs set: %v", err)
-		return
-	}
-	log.Printf("populated %d UUIDs into Valkey set", uuidCount)
 
 	e := echo.New()
+
 	e.HideBanner = true
 	e.HidePort = true
+
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: "${id} ${remote_ip} ${status} ${method} ${path} ${error} ${latency_human} ${bytes_in} ${bytes_out}\n",
 	}))
