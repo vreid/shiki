@@ -91,6 +91,16 @@ services:
       - traefik.http.middlewares.matchmaker-strip.stripprefix.prefixes=/matchmaker
       - traefik.http.routers.matchmaker.middlewares=matchmaker-strip
 
+  recordkeeper:
+    depends_on:
+      valkey:
+        condition: service_healthy
+    build:
+      context: .
+      dockerfile: services/recordkeeper/Dockerfile
+    volumes:
+      - ./data/recordkeeper:/data
+
   traefik:
     image: traefik:3
     command:
