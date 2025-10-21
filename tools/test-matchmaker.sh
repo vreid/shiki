@@ -20,7 +20,7 @@ while true; do
     RANDOM_INDEX=$((RANDOM % OPPONENT_COUNT))
     WINNER_ID=$(echo "${OPPONENTS}" | jq -r ".[${RANDOM_INDEX}].opponent_id")
 
-    echo "Round ${ROUND} | Difficulty: ${DIFFICULTY}, Winner: ${WINNER_ID}"
+    echo "$(date -Iseconds) Round ${ROUND} | Difficulty: ${DIFFICULTY}, Winner: ${WINNER_ID}"
 
     NONCE=0
     MESSAGE="${SIGNATURE}|${WINNER_ID}|${NONCE}"
@@ -41,8 +41,8 @@ while true; do
 
             NONCE=$((NONCE + 1))
 
-            if ((NONCE % 10000 == 0)); then
-                echo "Tried ${NONCE} nonces..."
+            if ((NONCE % 1000 == 0)); then
+                echo "$(date -Iseconds) Tried ${NONCE} nonces..."
             fi
         done
     fi
