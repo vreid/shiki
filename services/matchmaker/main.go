@@ -33,6 +33,7 @@ var (
 
 	assetsKey    = flag.String("assets-key", "metadata:assets", "")
 	ratelimitKey = flag.String("ratelimit-key", "matchmaker:ratelimit", "")
+	outcomesKey  = flag.String("outcomes-key", "matchmaker:outcomes", "")
 
 	signatureSecret = flag.String("signature-secret", "secret", "")
 
@@ -73,6 +74,13 @@ type Outcome struct {
 	Hash  string `json:"hash"`
 
 	// BrowserFingerprint *BrowserFingerprint `json:"browser_fingerprint,omitempty"`
+}
+
+//nolint:tagliatelle
+type VerifiedOutcome struct {
+	WinnerID  string   `json:"winner_id"`
+	Opponents []string `json:"opponents"`
+	Timestamp int64    `json:"timestamp"`
 }
 
 func createMatchUp(opponents []string, signatureSecret []byte, difficulty int) (*SignedMatchUp, error) {
@@ -130,6 +138,41 @@ func hashIP(ip string) string {
 	h.Write([]byte(ip))
 
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func publishOutcome(ctx context.Context, outcome Outcome) error {
+	verifiedOutcome := VerifiedOutcome{
+		WinnerID:  "",
+		Opponents: []string{},
+		Timestamp: outcome.SignedMatchUp.MatchUp.Timestamp,
+	}
+
+	for _, opponent := range outcome.SignedMatchUp.MatchUp.Opponents {
+		if opponent.OpponentID == outcome.WinnerID {
+			verifiedOutcome.WinnerID = opponent.AssetID
+		} else {
+			verifiedOutcome.Opponents = append(verifiedOutcome.Opponents, opponent.AssetID)
+		}
+	}
+
+	jsonData, err := json.Marshal(verifiedOutcome)
+	if err != nil {
+		return fmt.Errorf("failed to marshal outcome data: %w", err)
+	}
+
+	cmd := valkeyClient.B().Xadd().
+		Key(*outcomesKey).
+		Id("*").
+		FieldValue().
+		FieldValue("data", string(jsonData)).
+		Build()
+
+	err = valkeyClient.Do(ctx, cmd).Error()
+	if err != nil {
+		return fmt.Errorf("failed to publish outcome to stream: %w", err)
+	}
+
+	return nil
 }
 
 func calculateDifficulty(ctx context.Context, hash string) (int, error) {
@@ -281,6 +324,8 @@ func PostOutcome(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusBadRequest, "invalid winner value")
 		}
 	}
+
+	_ = publishOutcome(ctx, outcome)
 
 	ipHash := hashIP(cc.RealIP())
 
