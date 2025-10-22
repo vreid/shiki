@@ -4,7 +4,7 @@ go 1.25
 
 require (
 	github.com/labstack/echo/v4 v4.13.4
-	github.com/valkey-io/valkey-go v1.0.67
+	github.com/urfave/cli/v3 v3.5.0
 )
 
 require (

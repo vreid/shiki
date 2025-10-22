@@ -4,7 +4,7 @@ WORKDIR /workspace
 
 COPY .golangci.yml .
 
-ARG SERVICE_DIR="services/processor"
+ARG SERVICE_DIR="services/processor-worker"
 WORKDIR /workspace/${SERVICE_DIR}
 
 COPY ${SERVICE_DIR}/go.mod ${SERVICE_DIR}/go.sum ./
@@ -44,7 +44,7 @@ COPY tools/process-image.sh .
 
 WORKDIR /app
 
-ARG SERVICE_DIR="services/processor"
+ARG SERVICE_DIR="services/processor-worker"
 COPY --from=builder /workspace/${SERVICE_DIR}/server .
 
 CMD ["./server"]

@@ -26,22 +26,29 @@ services:
       - traefik.http.routers.receiver.middlewares=receiver-strip
 
   processor:
-    depends_on:
-      valkey:
-        condition: service_healthy
     build:
       context: .
       dockerfile: services/processor/Dockerfile
     volumes:
       - ./data/processor:/data
-    deploy:
-      replicas: 3
     labels:
       - traefik.enable=true
       - traefik.http.routers.processor.rule=PathPrefix(`/processor`)
       - traefik.http.services.processor.loadbalancer.server.port=3000
       - traefik.http.middlewares.processor-strip.stripprefix.prefixes=/processor
       - traefik.http.routers.processor.middlewares=processor-strip
+
+  processor-worker:
+    depends_on:
+      valkey:
+        condition: service_healthy
+    build:
+      context: .
+      dockerfile: services/processor-worker/Dockerfile
+    volumes:
+      - ./data/processor:/data
+    deploy:
+      replicas: 3
 
   metadata:
     depends_on:
