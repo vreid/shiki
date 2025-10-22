@@ -101,6 +101,14 @@ services:
     volumes:
       - ./data/recordkeeper:/data
 
+  scorer:
+    depends_on:
+      valkey:
+        condition: service_healthy
+    build:
+      context: .
+      dockerfile: services/scorer/Dockerfile
+
   traefik:
     image: traefik:3
     command:
