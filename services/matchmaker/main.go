@@ -371,7 +371,7 @@ func main() {
 	e := echo.New()
 
 	e.HideBanner = true
-	e.HidePort = true
+	e.HidePort = false
 
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {

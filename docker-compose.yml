@@ -25,6 +25,18 @@ services:
       - traefik.http.middlewares.receiver-strip.stripprefix.prefixes=/receiver
       - traefik.http.routers.receiver.middlewares=receiver-strip
 
+  processor-worker:
+    depends_on:
+      valkey:
+        condition: service_healthy
+    build:
+      context: .
+      dockerfile: services/processor-worker/Dockerfile
+    volumes:
+      - ./data/processor:/data
+    deploy:
+      replicas: 3
+
   processor:
     build:
       context: .
@@ -38,22 +50,17 @@ services:
       - traefik.http.middlewares.processor-strip.stripprefix.prefixes=/processor
       - traefik.http.routers.processor.middlewares=processor-strip
 
-  processor-worker:
+  metadata-worker:
     depends_on:
       valkey:
         condition: service_healthy
     build:
       context: .
-      dockerfile: services/processor-worker/Dockerfile
+      dockerfile: services/metadata-worker/Dockerfile
     volumes:
-      - ./data/processor:/data
-    deploy:
-      replicas: 3
+      - ./data/metadata:/data
 
   metadata:
-    depends_on:
-      valkey:
-        condition: service_healthy
     build:
       context: .
       dockerfile: services/metadata/Dockerfile

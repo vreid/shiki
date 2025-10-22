@@ -48,7 +48,7 @@ func runServer(_ context.Context, cmd *cli.Command) error {
 	e := echo.New()
 
 	e.HideBanner = true
-	e.HidePort = true
+	e.HidePort = false
 
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: "${id} ${remote_ip} ${status} ${method} ${path} ${error} ${latency_human} ${bytes_in} ${bytes_out}\n",
@@ -71,7 +71,7 @@ func main() {
 		Name: "receiver",
 		Commands: []*cli.Command{
 			{
-				Name: "serve",
+				Name: "server",
 				Flags: []cli.Flag{
 					&cli.IntFlag{
 						Name:    "port",
@@ -92,7 +92,7 @@ func main() {
 				Action: runServer,
 			},
 		},
-		DefaultCommand: "serve",
+		DefaultCommand: "server",
 	}
 
 	err := cmd.Run(context.Background(), os.Args)

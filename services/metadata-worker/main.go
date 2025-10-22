@@ -5,27 +5,35 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/urfave/cli/v3"
 	"github.com/valkey-io/valkey-go"
+	"go.etcd.io/bbolt"
 )
 
-type processorWorker struct {
+type metadataWorker struct {
+	db           *bbolt.DB
 	valkeyClient valkey.Client
 
-	dataDir     string
-	scriptDir   string
-	receiverURL string
+	dataDir      string
+	processorURL string
 
 	consumerGroup string
 	consumerName  string
 }
 
-func newProcessorWorker(cmd *cli.Command) (*processorWorker, error) {
+func newMetadataWorker(cmd *cli.Command) (*metadataWorker, error) {
 	valkeyAddr := cmd.String("valkey-addr")
 	dataDir := cmd.String("data-dir")
-	scriptDir := cmd.String("script-dir")
-	receiverURL := cmd.String("receiver-url")
+	processorURL := cmd.String("processor-url")
+
+	dbPath := filepath.Join(dataDir, "metadata.db")
+
+	db, err := bbolt.Open(dbPath, 0600, nil)
+	if err != nil {
+		log.Fatalf("failed to open database: %v", err)
+	}
 
 	valkeyClient, err := valkey.NewClient(valkey.ClientOption{
 		InitAddress: []string{valkeyAddr},
@@ -39,31 +47,31 @@ func newProcessorWorker(cmd *cli.Command) (*processorWorker, error) {
 		return nil, fmt.Errorf("failed to get hostname: %w", err)
 	}
 
-	return &processorWorker{
+	return &metadataWorker{
+		db:           db,
 		valkeyClient: valkeyClient,
 
-		dataDir:     dataDir,
-		scriptDir:   scriptDir,
-		receiverURL: receiverURL,
+		dataDir:      dataDir,
+		processorURL: processorURL,
 
-		consumerGroup: "processors",
+		consumerGroup: "metadata",
 		consumerName:  hostname,
 	}, nil
 }
 
 func runWorker(ctx context.Context, cmd *cli.Command) error {
-	processorWorker, err := newProcessorWorker(cmd)
+	metadataWorker, err := newMetadataWorker(cmd)
 	if err != nil {
-		return fmt.Errorf("couldn't create processor worker: %w", err)
+		return fmt.Errorf("couldn't create metadata worker: %w", err)
 	}
 
-	return processorWorker.worker(ctx)
+	return metadataWorker.worker(ctx)
 }
 
 func main() {
 	//nolint:exhaustruct
 	cmd := &cli.Command{
-		Name: "processor-worker",
+		Name: "metadata-worker",
 		Commands: []*cli.Command{
 			{
 				Name: "worker",
@@ -71,22 +79,17 @@ func main() {
 					&cli.StringFlag{
 						Name:    "data-dir",
 						Value:   "/data",
-						Sources: cli.EnvVars("PROCESSOR_WORKER_DATA_DIR"),
+						Sources: cli.EnvVars("METADATA_WORKER_DATA_DIR"),
 					},
 					&cli.StringFlag{
-						Name:    "script-dir",
-						Value:   "/app/tools",
-						Sources: cli.EnvVars("PROCESSOR_WORKER_SCRIPT_DIR"),
-					},
-					&cli.StringFlag{
-						Name:    "receiver-url",
-						Value:   "http://traefik/receiver",
-						Sources: cli.EnvVars("PROCESSOR_WORKER_RECEIVER_URL"),
+						Name:    "processor-url",
+						Value:   "http://traefik/processor",
+						Sources: cli.EnvVars("METADATA_WORKER_PROCESSOR_URL"),
 					},
 					&cli.StringFlag{
 						Name:    "valkey-addr",
 						Value:   "valkey:6379",
-						Sources: cli.EnvVars("PROCESSOR_WORKER_VALKEY_ADDR"),
+						Sources: cli.EnvVars("METADATA_WORKER_VALKEY_ADDR"),
 					},
 				},
 				Action: runWorker,

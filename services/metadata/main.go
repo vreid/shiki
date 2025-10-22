@@ -2,379 +2,91 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"flag"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"syscall"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/valkey-io/valkey-go"
+	"github.com/urfave/cli/v3"
 	"go.etcd.io/bbolt"
 )
 
-var ErrBadStatus = errors.New("bad status")
+type metadata struct {
+	db *bbolt.DB
 
-var (
-	processorURL = flag.String("processor-url", "http://traefik/processor", "")
-	valkeyAddr   = flag.String("valkey-addr", "valkey:6379", "")
-	dataDir      = flag.String("data-dir", "/data", "")
-	port         = flag.Int("port", 3000, "")
-)
-
-//nolint:tagliatelle
-type Metadata struct {
-	OriginalFilename string `json:"original_filename"`
-	SHA256           string `json:"sha256"`
-	SHA256Strip      string `json:"sha256_strip"`
-	SHA256Webp       string `json:"sha256_webp"`
-	UUID             string `json:"uuid"`
+	dataDir string
 }
 
-func fetchMetadata(ctx context.Context, uuid string) (*Metadata, error) {
-	metadataURL := fmt.Sprintf("%s/files/%s/metadata.json", *processorURL, uuid)
+func newMetadata(cmd *cli.Command) (*metadata, error) {
+	dataDir := cmd.String("data-dir")
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metadataURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
+	dbPath := filepath.Join(dataDir, "metadata.db")
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch metadata: %w", err)
-	}
-
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: %s", ErrBadStatus, resp.Status)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var metadata Metadata
-
-	err = json.Unmarshal(body, &metadata)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse metadata: %w", err)
-	}
-
-	return &metadata, nil
-}
-
-//nolint:cyclop,funlen
-func syncMetadata(ctx context.Context, db *bbolt.DB, valkeyClient valkey.Client) error {
-	log.Println("syncing UUIDs to Valkey...")
-
-	cmd := valkeyClient.B().Smembers().Key("metadata:assets").Build()
-
-	existingMembers, err := valkeyClient.Do(ctx, cmd).AsStrSlice()
-	if err != nil {
-		return fmt.Errorf("failed to get existing members: %w", err)
-	}
-
-	valkeySet := make(map[string]bool)
-	for _, member := range existingMembers {
-		valkeySet[member] = true
-	}
-
-	dbSet := make(map[string]bool)
-
-	err = db.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte("metadata"))
-		if bucket == nil {
-			return nil
-		}
-
-		return bucket.ForEach(func(k, _ []byte) error {
-			dbSet[string(k)] = true
-
-			return nil
-		})
-	})
-	if err != nil {
-		return fmt.Errorf("failed to read UUIDs from database: %w", err)
-	}
-
-	var added int
-
-	for uuid := range dbSet {
-		if !valkeySet[uuid] {
-			addErr := valkeyClient.Do(ctx, valkeyClient.B().Sadd().
-				Key("metadata:assets").
-				Member(uuid).
-				Build()).Error()
-			if addErr != nil {
-				return fmt.Errorf("failed to add uuid to set: %w", addErr)
-			}
-
-			added++
-		}
-	}
-
-	var removed int
-
-	for uuid := range valkeySet {
-		if !dbSet[uuid] {
-			remErr := valkeyClient.Do(ctx, valkeyClient.B().Srem().
-				Key("metadata:assets").
-				Member(uuid).
-				Build()).Error()
-			if remErr != nil {
-				return fmt.Errorf("failed to remove uuid from set: %w", remErr)
-			}
-
-			removed++
-		}
-	}
-
-	log.Printf("synced metadata:assets - added: %d, removed: %d, total: %d", added, removed, len(dbSet))
-
-	return nil
-}
-
-func list(db *bbolt.DB) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		var uuids []string
-
-		err := db.View(func(tx *bbolt.Tx) error {
-			bucket := tx.Bucket([]byte("metadata"))
-			if bucket == nil {
-				return nil
-			}
-
-			return bucket.ForEach(func(k, _ []byte) error {
-				uuids = append(uuids, string(k))
-
-				return nil
-			})
-		})
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to list UUIDs")
-		}
-
-		return c.JSONPretty(http.StatusOK, uuids, "  ")
-	}
-}
-
-//nolint:cyclop,funlen,gocognit,maintidx
-func main() {
-	flag.Parse()
-
-	dbPath := filepath.Join(*dataDir, "metadata.db")
-
-	db, err := bbolt.Open(dbPath, 0600, nil)
+	db, err := bbolt.Open(dbPath, 0600, &bbolt.Options{ReadOnly: true})
 	if err != nil {
 		log.Fatalf("failed to open database: %v", err)
 	}
 
-	defer func() {
-		_ = db.Close()
-	}()
+	return &metadata{
+		db: db,
 
-	err = db.Update(func(tx *bbolt.Tx) error {
-		_, createErr := tx.CreateBucketIfNotExists([]byte("metadata"))
-		if createErr != nil {
-			return fmt.Errorf("failed to create bucket: %w", createErr)
-		}
+		dataDir: dataDir,
+	}, nil
+}
 
-		return nil
-	})
+func runServer(_ context.Context, cmd *cli.Command) error {
+	port := cmd.Int("port")
+
+	metadata, err := newMetadata(cmd)
 	if err != nil {
-		log.Printf("failed to create bucket: %v", err)
-
-		return
-	}
-
-	valkeyClient, err := valkey.NewClient(valkey.ClientOption{
-		InitAddress: []string{*valkeyAddr},
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	defer valkeyClient.Close()
-
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-
-	err = syncMetadata(ctx, db, valkeyClient)
-	if err != nil {
-		log.Printf("failed to load metadata to Valkey: %v", err)
-
-		return
+		return fmt.Errorf("couldn't create metadata service: %w", err)
 	}
 
 	e := echo.New()
 
 	e.HideBanner = true
-	e.HidePort = true
+	e.HidePort = false
 
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: "${id} ${remote_ip} ${status} ${method} ${path} ${error} ${latency_human} ${bytes_in} ${bytes_out}\n",
 	}))
 	e.Use(middleware.Recover())
 
-	e.GET("/", list(db))
+	e.GET("/", metadata.list)
 
-	go func() {
-		log.Printf("starting HTTP server on :%d", *port)
+	//nolint:wrapcheck
+	return e.Start(fmt.Sprintf(":%d", port))
+}
 
-		startErr := e.Start(fmt.Sprintf(":%d", *port))
-		if startErr != nil && !errors.Is(startErr, http.ErrServerClosed) {
-			log.Printf("HTTP server error: %v", startErr)
-		}
-	}()
+func main() {
+	//nolint:exhaustruct
+	cmd := &cli.Command{
+		Name: "metadata",
+		Commands: []*cli.Command{
+			{
+				Name: "server",
+				Flags: []cli.Flag{
+					&cli.IntFlag{
+						Name:    "port",
+						Value:   3000, //nolint:mnd
+						Sources: cli.EnvVars("METADATA_PORT"),
+					},
+					&cli.StringFlag{
+						Name:    "data-dir",
+						Value:   "/data",
+						Sources: cli.EnvVars("METADATA_DATA_DIR"),
+					},
+				},
+				Action: runServer,
+			},
+		},
+		DefaultCommand: "server",
+	}
 
-	hostname, err := os.Hostname()
+	err := cmd.Run(context.Background(), os.Args)
 	if err != nil {
-		log.Printf("failed to get hostname: %v", err)
-
-		return
-	}
-
-	consumerGroup := "metadata"
-	consumerName := hostname
-
-	createGroupErr := valkeyClient.Do(ctx, valkeyClient.B().XgroupCreate().
-		Key("processed").
-		Group(consumerGroup).
-		Id("0").
-		Mkstream().
-		Build()).Error()
-	if createGroupErr != nil && createGroupErr.Error() != "BUSYGROUP Consumer Group name already exists" {
-		log.Printf("failed to create consumer group: %v", createGroupErr)
-
-		return
-	}
-
-	log.Printf("listening for processed events as consumer '%s' in group '%s'", consumerName, consumerGroup)
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("shutting down gracefully...")
-
-			return
-		default:
-		}
-
-		response := valkeyClient.Do(ctx, valkeyClient.B().Xreadgroup().
-			Group(consumerGroup, consumerName).
-			Block(1000).
-			Streams().
-			Key("processed").
-			Id(">").
-			Build())
-
-		if ctx.Err() != nil {
-			log.Println("shutting down gracefully...")
-
-			return
-		}
-
-		streams, err := response.AsXRead()
-		if err != nil {
-			msg := err.Error()
-			if msg != "valkey nil message" {
-				log.Printf("error reading stream: %v", err)
-			}
-
-			continue
-		}
-
-		for streamName, messages := range streams {
-			log.Printf("stream: %s", streamName)
-
-			for _, message := range messages {
-				uuid := message.FieldValues["uuid"]
-
-				log.Printf("processing uuid: %s", uuid)
-
-				metadata, fetchErr := fetchMetadata(ctx, uuid)
-				if fetchErr != nil {
-					log.Printf("error fetching metadata for %s: %v", uuid, fetchErr)
-
-					continue
-				}
-
-				isNew := false
-
-				storeErr := db.Update(func(tx *bbolt.Tx) error {
-					bucket := tx.Bucket([]byte("metadata"))
-
-					existingData := bucket.Get([]byte(uuid))
-
-					metadataJSON, marshalErr := json.Marshal(metadata)
-					if marshalErr != nil {
-						return fmt.Errorf("failed to marshal metadata: %w", marshalErr)
-					}
-
-					if existingData != nil {
-						if string(existingData) == string(metadataJSON) {
-							log.Printf("metadata for %s already exists and is identical, skipping", uuid)
-
-							return nil
-						}
-
-						log.Printf("WARNING: metadata for %s already exists but differs from new metadata", uuid)
-					} else {
-						isNew = true
-					}
-
-					return bucket.Put([]byte(uuid), metadataJSON)
-				})
-				if storeErr != nil {
-					log.Printf("error storing metadata for %s: %v", uuid, storeErr)
-
-					continue
-				}
-
-				log.Printf("stored metadata for %s", uuid)
-
-				if isNew {
-					addErr := valkeyClient.Do(ctx, valkeyClient.B().Sadd().
-						Key("metadata:assets").
-						Member(uuid).
-						Build()).Error()
-					if addErr != nil {
-						log.Printf("failed to add uuid %s to set: %v", uuid, addErr)
-					}
-
-					publishErr := valkeyClient.Do(ctx, valkeyClient.B().Xadd().
-						Key("metadata-ready").
-						Id("*").
-						FieldValue().
-						FieldValue("uuid", uuid).
-						Build()).Error()
-					if publishErr != nil {
-						log.Printf("failed to publish uuid %s to metadata-ready stream: %v", uuid, publishErr)
-					} else {
-						log.Printf("published uuid %s to metadata-ready stream", uuid)
-					}
-				}
-
-				ackErr := valkeyClient.Do(ctx, valkeyClient.B().Xack().
-					Key("processed").
-					Group(consumerGroup).
-					Id(message.ID).
-					Build()).Error()
-				if ackErr != nil {
-					log.Printf("failed to ack message %s: %v", message.ID, ackErr)
-				}
-			}
-		}
+		log.Fatal(err)
 	}
 }

@@ -209,7 +209,7 @@ func main() {
 	e := echo.New()
 
 	e.HideBanner = true
-	e.HidePort = true
+	e.HidePort = false
 
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: "${id} ${remote_ip} ${status} ${method} ${path} ${error} ${latency_human} ${bytes_in} ${bytes_out}\n",
