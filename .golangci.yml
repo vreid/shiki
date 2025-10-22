@@ -8,5 +8,6 @@ linters:
     - gochecknoglobals
     - mnd
     - revive
+    - tagliatelle
     - varnamelen
     - wsl

@@ -1,14 +1,8 @@
-FROM golang:1.25-alpine AS build
+FROM golang:1-alpine AS builder
 
 WORKDIR /workspace
 
 COPY .golangci.yml .
-
-ARG LIBRARY_DIR="libs/go/types"
-WORKDIR /workspace/${LIBRARY_DIR}
-
-COPY ${LIBRARY_DIR}/go.mod ${LIBRARY_DIR}/go.sum ./
-COPY ${LIBRARY_DIR}/ ./
 
 ARG SERVICE_DIR="services/recordkeeper"
 WORKDIR /workspace/${SERVICE_DIR}
@@ -33,6 +27,6 @@ FROM scratch
 WORKDIR /app
 
 ARG SERVICE_DIR="services/recordkeeper"
-COPY --from=build /workspace/${SERVICE_DIR}/server .
+COPY --from=builder /workspace/${SERVICE_DIR}/server .
 
 CMD ["./server"]

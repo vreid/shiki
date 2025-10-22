@@ -1,176 +1,49 @@
 package main
 
 import (
-	"encoding/json"
-	"flag"
+	"context"
 	"fmt"
-	"io"
-	"net/http"
+	"log"
 	"os"
-	"path/filepath"
-	"strconv"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/urfave/cli/v3"
 	"github.com/valkey-io/valkey-go"
 )
 
-var (
-	port       = flag.Int("port", 3000, "")
-	dataDir    = flag.String("data-dir", "/data", "")
-	valkeyAddr = flag.String("valkey-addr", "valkey:6379", "")
-
+type receiver struct {
 	valkeyClient valkey.Client
-)
 
-//nolint:tagliatelle
-type UploadIndex struct {
-	UploadID  string    `json:"upload_id"`
-	Timestamp time.Time `json:"timestamp"`
-	Files     []string  `json:"files"`
+	dataDir string
 }
 
-func deleteUpload(c echo.Context) error {
-	uploadID := c.Param("id")
-	if uploadID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "upload_id is required")
-	}
+func newReceiver(cmd *cli.Command) (*receiver, error) {
+	valkeyAddr := cmd.String("valkey-addr")
+	dataDir := cmd.String("data-dir")
 
-	uploadDir := filepath.Join(*dataDir, uploadID)
-
-	err := os.RemoveAll(uploadDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return echo.NewHTTPError(http.StatusNotFound, "upload not found")
-		}
-
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to delete upload")
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func list(c echo.Context) error {
-	entries, err := os.ReadDir(*dataDir)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to read data directory")
-	}
-
-	directories := make([]string, 0)
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			directories = append(directories, entry.Name())
-		}
-	}
-
-	//nolint:wrapcheck
-	return c.JSON(http.StatusOK, directories)
-}
-
-//nolint:cyclop,funlen
-func upload(c echo.Context) error {
-	form, err := c.MultipartForm()
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "failed to parse multipart form")
-	}
-
-	files := form.File["files"]
-
-	_uploadID, err := uuid.NewV7()
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate UUID")
-	}
-
-	uploadID := _uploadID.String()
-	uploadDir := filepath.Join(*dataDir, uploadID)
-
-	err = os.MkdirAll(uploadDir, 0700)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create upload directory")
-	}
-
-	index := UploadIndex{
-		UploadID:  uploadID,
-		Timestamp: time.Now(),
-		Files:     make([]string, 0, len(files)),
-	}
-
-	for _, file := range files {
-		src, err := file.Open()
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to open uploaded file")
-		}
-
-		defer func() {
-			_ = src.Close()
-		}()
-
-		dstPath := filepath.Join(uploadDir, file.Filename)
-
-		//nolint:gosec
-		dst, err := os.Create(dstPath)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to create file")
-		}
-
-		defer func() {
-			_ = dst.Close()
-		}()
-
-		_, err = io.Copy(dst, src)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to write file")
-		}
-
-		index.Files = append(index.Files, file.Filename)
-	}
-
-	indexPath := filepath.Join(uploadDir, "index.json")
-
-	indexData, err := json.MarshalIndent(index, "", "  ")
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to marshal index")
-	}
-
-	err = os.WriteFile(indexPath, indexData, 0600)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to write index file")
-	}
-
-	ctx := c.Request().Context()
-
-	err = valkeyClient.Do(ctx, valkeyClient.B().Xadd().
-		Key("uploads").
-		Id("*").
-		FieldValue().
-		FieldValue("upload_id", uploadID).
-		FieldValue("timestamp", strconv.FormatInt(index.Timestamp.Unix(), 10)).
-		FieldValue("files", strconv.Itoa(len(index.Files))).
-		Build()).Error()
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to publish upload event")
-	}
-
-	//nolint:wrapcheck
-	return c.JSON(http.StatusAccepted, uploadID)
-}
-
-func main() {
-	flag.Parse()
-
-	var err error
-
-	valkeyClient, err = valkey.NewClient(valkey.ClientOption{
-		InitAddress: []string{*valkeyAddr},
+	valkeyClient, err := valkey.NewClient(valkey.ClientOption{
+		InitAddress: []string{valkeyAddr},
 	})
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("couldn't create valkey client: %w", err)
 	}
 
-	defer valkeyClient.Close()
+	return &receiver{
+		valkeyClient: valkeyClient,
+		dataDir:      dataDir,
+	}, nil
+}
+
+func runServer(_ context.Context, cmd *cli.Command) error {
+	port := cmd.Int("port")
+
+	receiver, err := newReceiver(cmd)
+	if err != nil {
+		return fmt.Errorf("couldn't create receiver service: %w", err)
+	}
+
+	defer receiver.valkeyClient.Close()
 
 	e := echo.New()
 
@@ -182,11 +55,48 @@ func main() {
 	}))
 	e.Use(middleware.Recover())
 
-	e.POST("/upload", upload)
-	e.GET("/", list)
-	e.DELETE("/:id", deleteUpload)
+	e.POST("/upload", receiver.upload)
+	e.GET("/", receiver.list)
+	e.DELETE("/:id", receiver.deleteUpload)
 
-	e.Static("/files", *dataDir)
+	e.Static("/files", receiver.dataDir)
 
-	e.Logger.Fatal(e.Start(fmt.Sprintf(":%d", *port)))
+	//nolint:wrapcheck
+	return e.Start(fmt.Sprintf(":%d", port))
+}
+
+func main() {
+	//nolint:exhaustruct
+	cmd := &cli.Command{
+		Name: "receiver",
+		Commands: []*cli.Command{
+			{
+				Name: "serve",
+				Flags: []cli.Flag{
+					&cli.IntFlag{
+						Name:    "port",
+						Value:   3000, //nolint:mnd
+						Sources: cli.EnvVars("RECEIVER_PORT"),
+					},
+					&cli.StringFlag{
+						Name:    "data-dir",
+						Value:   "/data",
+						Sources: cli.EnvVars("RECEIVER_DATA_DIR"),
+					},
+					&cli.StringFlag{
+						Name:    "valkey-addr",
+						Value:   "valkey:6379",
+						Sources: cli.EnvVars("RECEIVER_VALKEY_ADDR"),
+					},
+				},
+				Action: runServer,
+			},
+		},
+		DefaultCommand: "serve",
+	}
+
+	err := cmd.Run(context.Background(), os.Args)
+	if err != nil {
+		log.Fatal(err)
+	}
 }

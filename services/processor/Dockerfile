@@ -1,14 +1,8 @@
-FROM golang:1.25-alpine AS build
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /workspace
 
 COPY .golangci.yml .
-
-ARG LIBRARY_DIR="libs/go/types"
-WORKDIR /workspace/${LIBRARY_DIR}
-
-COPY ${LIBRARY_DIR}/go.mod ${LIBRARY_DIR}/go.sum ./
-COPY ${LIBRARY_DIR}/ ./
 
 ARG SERVICE_DIR="services/processor"
 WORKDIR /workspace/${SERVICE_DIR}
@@ -28,7 +22,7 @@ RUN go build \
     -o server \
     .
 
-FROM alpine:3.22
+FROM alpine:3
 
 RUN apk --no-cache add \
     bash \
@@ -51,6 +45,6 @@ COPY tools/process-image.sh .
 WORKDIR /app
 
 ARG SERVICE_DIR="services/processor"
-COPY --from=build /workspace/${SERVICE_DIR}/server .
+COPY --from=builder /workspace/${SERVICE_DIR}/server .
 
 CMD ["./server"]
