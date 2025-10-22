@@ -49,7 +49,7 @@ func (x *metadataWorker) syncMetadata(ctx context.Context) error {
 		})
 	})
 	if err != nil {
-		return fmt.Errorf("failed to read UUIDs from database: %w", err)
+		return fmt.Errorf("failed to read from database: %w", err)
 	}
 
 	var added int
