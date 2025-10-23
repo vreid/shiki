@@ -1,4 +1,12 @@
-package main
+package types
+
+import "time"
+
+type UploadIndex struct {
+	UploadID  string    `json:"upload_id"`
+	Timestamp time.Time `json:"timestamp"`
+	Files     []string  `json:"files"`
+}
 
 type Metadata struct {
 	OriginalFilename string `json:"original_filename"`

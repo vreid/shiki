@@ -1,10 +1,11 @@
 module github.com/vreid/shiki/services/metadata
 
-go 1.25
+go 1.25.1
 
 require (
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/urfave/cli/v3 v3.5.0
+	github.com/vreid/shiki/libs/go/types v0.0.0-00010101000000-000000000000
 	go.etcd.io/bbolt v1.4.3
 )
 
@@ -20,3 +21,5 @@ require (
 	golang.org/x/text v0.25.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
 )
+
+replace github.com/vreid/shiki/libs/go/types => ../../libs/go/types

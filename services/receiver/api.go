@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/vreid/shiki/libs/go/types"
+
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
@@ -74,7 +76,7 @@ func (x *receiver) upload(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create upload directory")
 	}
 
-	index := UploadIndex{
+	index := types.UploadIndex{
 		UploadID:  uploadID,
 		Timestamp: time.Now(),
 		Files:     make([]string, 0, len(files)),

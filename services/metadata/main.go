@@ -24,9 +24,9 @@ func newMetadata(cmd *cli.Command) (*metadata, error) {
 
 	dbPath := filepath.Join(dataDir, "metadata.db")
 
-	db, err := bbolt.Open(dbPath, 0600, &bbolt.Options{ReadOnly: true})
+	db, err := bbolt.Open(dbPath, 0600, nil)
 	if err != nil {
-		log.Fatalf("failed to open database: %v", err)
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
 	return &metadata{
@@ -55,6 +55,10 @@ func runServer(_ context.Context, cmd *cli.Command) error {
 	e.Use(middleware.Recover())
 
 	e.GET("/", metadata.list)
+	e.GET("/:id", metadata.get)
+	e.POST("/:id", metadata.create)
+	e.PUT("/:id", metadata.update)
+	e.DELETE("/:id", metadata.delete)
 
 	//nolint:wrapcheck
 	return e.Start(fmt.Sprintf(":%d", port))

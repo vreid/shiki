@@ -5,19 +5,17 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/urfave/cli/v3"
 	"github.com/valkey-io/valkey-go"
-	"go.etcd.io/bbolt"
 )
 
 type metadataWorker struct {
-	db           *bbolt.DB
 	valkeyClient valkey.Client
 
-	dataDir      string
-	processorURL string
+	metadataClient  *resty.Client
+	processorClient *resty.Client
 
 	consumerGroup string
 	consumerName  string
@@ -25,15 +23,6 @@ type metadataWorker struct {
 
 func newMetadataWorker(cmd *cli.Command) (*metadataWorker, error) {
 	valkeyAddr := cmd.String("valkey-addr")
-	dataDir := cmd.String("data-dir")
-	processorURL := cmd.String("processor-url")
-
-	dbPath := filepath.Join(dataDir, "metadata.db")
-
-	db, err := bbolt.Open(dbPath, 0600, nil)
-	if err != nil {
-		log.Fatalf("failed to open database: %v", err)
-	}
 
 	valkeyClient, err := valkey.NewClient(valkey.ClientOption{
 		InitAddress: []string{valkeyAddr},
@@ -47,12 +36,17 @@ func newMetadataWorker(cmd *cli.Command) (*metadataWorker, error) {
 		return nil, fmt.Errorf("failed to get hostname: %w", err)
 	}
 
+	metadataClient := resty.New().
+		SetBaseURL(cmd.String("metadata-url"))
+
+	processorClient := resty.New().
+		SetBaseURL(cmd.String("processor-url"))
+
 	return &metadataWorker{
-		db:           db,
 		valkeyClient: valkeyClient,
 
-		dataDir:      dataDir,
-		processorURL: processorURL,
+		metadataClient:  metadataClient,
+		processorClient: processorClient,
 
 		consumerGroup: "metadata",
 		consumerName:  hostname,
@@ -77,9 +71,9 @@ func main() {
 				Name: "worker",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
-						Name:    "data-dir",
-						Value:   "/data",
-						Sources: cli.EnvVars("METADATA_WORKER_DATA_DIR"),
+						Name:    "metadata-url",
+						Value:   "http://traefik/metadata",
+						Sources: cli.EnvVars("METADATA_WORKER_METADATA_URL"),
 					},
 					&cli.StringFlag{
 						Name:    "processor-url",

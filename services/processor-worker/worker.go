@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/vreid/shiki/libs/go/types"
+
 	"github.com/valkey-io/valkey-go"
 )
 
@@ -76,7 +78,7 @@ func (x *processorWorker) processUpload(ctx context.Context, uploadID string) er
 		return fmt.Errorf("failed to fetch index.json: status %d: %w", resp.StatusCode, err)
 	}
 
-	var index UploadIndex
+	var index types.UploadIndex
 
 	err = json.NewDecoder(resp.Body).Decode(&index)
 	if err != nil {

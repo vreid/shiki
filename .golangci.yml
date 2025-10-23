@@ -6,6 +6,7 @@ linters:
     - depguard
     - exhaustruct
     - gochecknoglobals
+    - gomoddirectives
     - mnd
     - revive
     - tagliatelle

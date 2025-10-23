@@ -5,19 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 
+	"github.com/vreid/shiki/libs/go/types"
+
 	"github.com/valkey-io/valkey-go"
-	"go.etcd.io/bbolt"
 )
 
 var ErrBadStatus = errors.New("bad status")
 
 //nolint:cyclop,funlen
 func (x *metadataWorker) syncMetadata(ctx context.Context) error {
-	db := x.db
 	valkeyClient := x.valkeyClient
 
 	log.Println("syncing to Valkey...")
@@ -34,31 +33,34 @@ func (x *metadataWorker) syncMetadata(ctx context.Context) error {
 		valkeySet[member] = true
 	}
 
-	dbSet := make(map[string]bool)
+	metadataClient := x.metadataClient
 
-	err = db.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte("metadata"))
-		if bucket == nil {
-			return nil
-		}
+	var metadataIDs []string
 
-		return bucket.ForEach(func(k, _ []byte) error {
-			dbSet[string(k)] = true
-
-			return nil
-		})
-	})
+	resp, err := metadataClient.R().
+		SetContext(ctx).
+		SetResult(&metadataIDs).
+		Get("/")
 	if err != nil {
-		return fmt.Errorf("failed to read from database: %w", err)
+		return fmt.Errorf("failed to fetch metadata list: %w", err)
+	}
+
+	if resp.IsError() {
+		return fmt.Errorf("%w: %s", ErrBadStatus, resp.Status())
+	}
+
+	dbSet := make(map[string]bool)
+	for _, id := range metadataIDs {
+		dbSet[id] = true
 	}
 
 	var added int
 
-	for uuid := range dbSet {
-		if !valkeySet[uuid] {
+	for id := range dbSet {
+		if !valkeySet[id] {
 			addErr := valkeyClient.Do(ctx, valkeyClient.B().Sadd().
 				Key("metadata:assets").
-				Member(uuid).
+				Member(id).
 				Build()).Error()
 			if addErr != nil {
 				return fmt.Errorf("failed to add uuid to set: %w", addErr)
@@ -70,11 +72,11 @@ func (x *metadataWorker) syncMetadata(ctx context.Context) error {
 
 	var removed int
 
-	for uuid := range valkeySet {
-		if !dbSet[uuid] {
+	for id := range valkeySet {
+		if !dbSet[id] {
 			remErr := valkeyClient.Do(ctx, valkeyClient.B().Srem().
 				Key("metadata:assets").
-				Member(uuid).
+				Member(id).
 				Build()).Error()
 			if remErr != nil {
 				return fmt.Errorf("failed to remove uuid from set: %w", remErr)
@@ -89,112 +91,141 @@ func (x *metadataWorker) syncMetadata(ctx context.Context) error {
 	return nil
 }
 
-func (x *metadataWorker) fetchMetadata(ctx context.Context, uuid string) (*Metadata, error) {
-	metadataURL := fmt.Sprintf("%s/files/%s/metadata.json", x.processorURL, uuid)
+func (x *metadataWorker) fetchMetadata(ctx context.Context, uuid string) (*types.Metadata, error) {
+	client := x.processorClient
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metadataURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
+	var metadata types.Metadata
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.R().
+		SetContext(ctx).
+		SetResult(&metadata).
+		Get(fmt.Sprintf("/files/%s/metadata.json", uuid))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch metadata: %w", err)
 	}
 
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: %s", ErrBadStatus, resp.Status)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var metadata Metadata
-
-	err = json.Unmarshal(body, &metadata)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse metadata: %w", err)
+	if resp.IsError() {
+		return nil, fmt.Errorf("%w: %s", ErrBadStatus, resp.Status())
 	}
 
 	return &metadata, nil
 }
 
-//nolint:funlen
+//nolint:cyclop,funlen
 func (x *metadataWorker) processMessage(ctx context.Context, message valkey.XRangeEntry) {
-	db := x.db
+	client := x.metadataClient
 	valkeyClient := x.valkeyClient
 	consumerGroup := x.consumerGroup
 
-	uuid := message.FieldValues["uuid"]
+	id := message.FieldValues["uuid"]
 
-	log.Printf("processing uuid: %s", uuid)
+	log.Printf("processing id: %s", id)
 
-	metadata, err := x.fetchMetadata(ctx, uuid)
+	metadata, err := x.fetchMetadata(ctx, id)
 	if err != nil {
-		log.Printf("error fetching metadata for %s: %v", uuid, err)
+		log.Printf("error fetching metadata for %s: %v", id, err)
 
 		return
 	}
 
 	isNew := false
 
-	err = db.Update(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket([]byte("metadata"))
+	var existing types.Metadata
 
-		existingData := bucket.Get([]byte(uuid))
-
-		metadataJSON, marshalErr := json.Marshal(metadata)
-		if marshalErr != nil {
-			return fmt.Errorf("failed to marshal metadata: %w", marshalErr)
-		}
-
-		if existingData != nil {
-			if string(existingData) == string(metadataJSON) {
-				log.Printf("metadata for %s already exists and is identical, skipping", uuid)
-
-				return nil
-			}
-
-			log.Printf("WARNING: metadata for %s already exists but differs from new metadata", uuid)
-		} else {
-			isNew = true
-		}
-
-		return bucket.Put([]byte(uuid), metadataJSON)
-	})
+	resp, err := client.R().
+		SetContext(ctx).
+		SetResult(&existing).
+		Get("/" + id)
 	if err != nil {
-		log.Printf("error storing metadata for %s: %v", uuid, err)
+		log.Printf("error checking existing metadata for %s: %v", id, err)
 
 		return
 	}
 
-	log.Printf("stored metadata for %s", uuid)
+	switch resp.StatusCode() {
+	case http.StatusNotFound:
+		resp, err = client.R().
+			SetContext(ctx).
+			SetBody(metadata).
+			Post("/" + id)
+		if err != nil {
+			log.Printf("error creating metadata for %s: %v", id, err)
+
+			return
+		}
+
+		if resp.IsError() {
+			log.Printf("error creating metadata for %s: %s", id, resp.Status())
+
+			return
+		}
+
+		isNew = true
+
+		log.Printf("created metadata for %s", id)
+	case http.StatusOK:
+		existingJSON, err := json.Marshal(existing)
+		if err != nil {
+			log.Printf("error marshaling existing metadata for %s: %v", id, err)
+
+			return
+		}
+
+		metadataJSON, err := json.Marshal(metadata)
+		if err != nil {
+			log.Printf("error marshaling new metadata for %s: %v", id, err)
+
+			return
+		}
+
+		if string(existingJSON) == string(metadataJSON) {
+			log.Printf("metadata for %s already exists and is identical, skipping", id)
+		} else {
+			log.Printf("WARNING: metadata for %s already exists but differs from new metadata", id)
+
+			resp, err = client.R().
+				SetContext(ctx).
+				SetBody(metadata).
+				Put("/" + id)
+			if err != nil {
+				log.Printf("error updating metadata for %s: %v", id, err)
+
+				return
+			}
+
+			if resp.IsError() {
+				log.Printf("error updating metadata for %s: %s", id, resp.Status())
+
+				return
+			}
+
+			log.Printf("updated metadata for %s", id)
+		}
+	default:
+		log.Printf("unexpected status when checking metadata for %s: %s", id, resp.Status())
+
+		return
+	}
 
 	if isNew {
 		addErr := valkeyClient.Do(ctx, valkeyClient.B().Sadd().
 			Key("metadata:assets").
-			Member(uuid).
+			Member(id).
 			Build()).Error()
 		if addErr != nil {
-			log.Printf("failed to add uuid %s to set: %v", uuid, addErr)
+			log.Printf("failed to add uuid %s to set: %v", id, addErr)
 		}
 
 		publishErr := valkeyClient.Do(ctx, valkeyClient.B().Xadd().
 			Key("metadata-ready").
 			Id("*").
 			FieldValue().
-			FieldValue("uuid", uuid).
+			FieldValue("uuid", id).
 			Build()).Error()
 		if publishErr != nil {
-			log.Printf("failed to publish uuid %s to metadata-ready stream: %v", uuid, publishErr)
+			log.Printf("failed to publish uuid %s to metadata-ready stream: %v", id, publishErr)
 		} else {
-			log.Printf("published uuid %s to metadata-ready stream", uuid)
+			log.Printf("published uuid %s to metadata-ready stream", id)
 		}
 	}
 
@@ -208,26 +239,12 @@ func (x *metadataWorker) processMessage(ctx context.Context, message valkey.XRan
 	}
 }
 
-//nolint:cyclop,funlen
 func (x *metadataWorker) worker(ctx context.Context) error {
-	db := x.db
 	valkeyClient := x.valkeyClient
 	consumerName := x.consumerName
 	consumerGroup := x.consumerGroup
 
-	err := db.Update(func(tx *bbolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte("metadata"))
-		if err != nil {
-			return fmt.Errorf("failed to create bucket: %w", err)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create bucket: %w", err)
-	}
-
-	err = x.syncMetadata(ctx)
+	err := x.syncMetadata(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to load metadata to Valkey: %w", err)
 	}

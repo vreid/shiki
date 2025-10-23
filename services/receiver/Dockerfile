@@ -4,6 +4,13 @@ WORKDIR /workspace
 
 COPY .golangci.yml .
 
+ARG LIBRARY_DIR="libs/go/types"
+WORKDIR /workspace/${LIBRARY_DIR}
+
+COPY ${LIBRARY_DIR}/go.mod .
+COPY ${LIBRARY_DIR}/ ./
+
+
 ARG SERVICE_DIR="services/receiver"
 WORKDIR /workspace/${SERVICE_DIR}
 

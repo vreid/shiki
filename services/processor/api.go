@@ -9,12 +9,12 @@ import (
 )
 
 func (x *processor) listDirectory(c echo.Context) error {
-	uuid := c.Param("uuid")
-	if uuid == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "uuid is required")
+	id := c.Param("id")
+	if id == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "id is required")
 	}
 
-	dirPath := filepath.Join(x.dataDir, uuid)
+	dirPath := filepath.Join(x.dataDir, id)
 
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
@@ -44,12 +44,12 @@ func (x *processor) listDirectory(c echo.Context) error {
 }
 
 func (x *processor) deleteDirectory(c echo.Context) error {
-	uuid := c.Param("uuid")
-	if uuid == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "uuid is required")
+	id := c.Param("id")
+	if id == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "id is required")
 	}
 
-	dirPath := filepath.Join(x.dataDir, uuid)
+	dirPath := filepath.Join(x.dataDir, id)
 
 	err := os.RemoveAll(dirPath)
 	if err != nil {

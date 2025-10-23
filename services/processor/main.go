@@ -38,8 +38,8 @@ func runServer(_ context.Context, cmd *cli.Command) error {
 	}))
 	e.Use(middleware.Recover())
 
-	e.GET("/:uuid", processor.listDirectory)
-	e.DELETE("/:uuid", processor.deleteDirectory)
+	e.GET("/:id", processor.listDirectory)
+	e.DELETE("/:id", processor.deleteDirectory)
 
 	e.Static("/files", processor.dataDir)
 
