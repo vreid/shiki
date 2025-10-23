@@ -1,10 +1,10 @@
 module github.com/vreid/shiki/services/storage
 
-go 1.25
+go 1.25.1
 
 require (
 	github.com/labstack/echo/v4 v4.13.4
-	github.com/valkey-io/valkey-go v1.0.67
+	github.com/urfave/cli/v3 v3.5.0
 )
 
 require (
@@ -19,3 +19,5 @@ require (
 	golang.org/x/text v0.25.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
 )
+
+replace github.com/vreid/shiki/libs/go/types => ../../libs/go/types

@@ -10,7 +10,7 @@ WORKDIR /workspace/${LIBRARY_DIR}
 COPY ${LIBRARY_DIR}/go.mod .
 COPY ${LIBRARY_DIR}/ ./
 
-ARG SERVICE_DIR="services/storage"
+ARG SERVICE_DIR="services/storage-worker"
 WORKDIR /workspace/${SERVICE_DIR}
 
 COPY ${SERVICE_DIR}/go.mod ${SERVICE_DIR}/go.sum ./
@@ -32,7 +32,7 @@ FROM scratch
 
 WORKDIR /app
 
-ARG SERVICE_DIR="services/storage"
+ARG SERVICE_DIR="services/storage-worker"
 COPY --from=builder /workspace/${SERVICE_DIR}/server .
 
 CMD ["./server"]

@@ -10,19 +10,19 @@ import (
 	"github.com/valkey-io/valkey-go"
 )
 
-type processorWorker struct {
+type storageWorker struct {
 	valkeyClient valkey.Client
 
-	dataDir   string
-	scriptDir string
+	dataDir string
 
-	receiverURL string
+	processorURL string
+	storageURL   string
 
 	consumerGroup string
 	consumerName  string
 }
 
-func newProcessorWorker(cmd *cli.Command) (*processorWorker, error) {
+func newStorageWorker(cmd *cli.Command) (*storageWorker, error) {
 	valkeyAddr := cmd.String("valkey-addr")
 
 	valkeyClient, err := valkey.NewClient(valkey.ClientOption{
@@ -37,32 +37,32 @@ func newProcessorWorker(cmd *cli.Command) (*processorWorker, error) {
 		return nil, fmt.Errorf("failed to get hostname: %w", err)
 	}
 
-	return &processorWorker{
+	return &storageWorker{
 		valkeyClient: valkeyClient,
 
-		dataDir:   cmd.String("data-dir"),
-		scriptDir: cmd.String("script-dir"),
+		dataDir: cmd.String("data-dir"),
 
-		receiverURL: cmd.String("receiver-url"),
+		processorURL: cmd.String("processor-url"),
+		storageURL:   cmd.String("storage-url"),
 
-		consumerGroup: "processors",
+		consumerGroup: "storage",
 		consumerName:  hostname,
 	}, nil
 }
 
 func runWorker(ctx context.Context, cmd *cli.Command) error {
-	processorWorker, err := newProcessorWorker(cmd)
+	storageWorker, err := newStorageWorker(cmd)
 	if err != nil {
-		return fmt.Errorf("couldn't create processor worker: %w", err)
+		return fmt.Errorf("couldn't create storage worker: %w", err)
 	}
 
-	return processorWorker.worker(ctx)
+	return storageWorker.worker(ctx)
 }
 
 func main() {
 	//nolint:exhaustruct
 	cmd := &cli.Command{
-		Name: "processor-worker",
+		Name: "storage-worker",
 		Commands: []*cli.Command{
 			{
 				Name: "worker",
@@ -70,28 +70,28 @@ func main() {
 					&cli.StringFlag{
 						Name:    "data-dir",
 						Value:   "/data",
-						Sources: cli.EnvVars("PROCESSOR_WORKER_DATA_DIR"),
+						Sources: cli.EnvVars("STORAGE_WORKER_DATA_DIR"),
 					},
 					&cli.StringFlag{
-						Name:    "script-dir",
-						Value:   "/app/tools",
-						Sources: cli.EnvVars("PROCESSOR_WORKER_SCRIPT_DIR"),
+						Name:    "processor-url",
+						Value:   "http://traefik/processor",
+						Sources: cli.EnvVars("STORAGE_WORKER_PROCESSOR_URL"),
 					},
 					&cli.StringFlag{
-						Name:    "receiver-url",
-						Value:   "http://traefik/receiver",
-						Sources: cli.EnvVars("PROCESSOR_WORKER_RECEIVER_URL"),
+						Name:    "storage-url",
+						Value:   "http://traefik/storage",
+						Sources: cli.EnvVars("STORAGE_WORKER_STORAGE_URL"),
 					},
 					&cli.StringFlag{
 						Name:    "valkey-addr",
 						Value:   "valkey:6379",
-						Sources: cli.EnvVars("PROCESSOR_WORKER_VALKEY_ADDR"),
+						Sources: cli.EnvVars("STORAGE_WORKER_VALKEY_ADDR"),
 					},
 				},
 				Action: runWorker,
 			},
 		},
-		DefaultCommand: "worker",
+		DefaultCommand: "server",
 	}
 
 	err := cmd.Run(context.Background(), os.Args)

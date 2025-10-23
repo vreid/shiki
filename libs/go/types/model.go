@@ -15,3 +15,9 @@ type Metadata struct {
 	SHA256Webp       string `json:"sha256_webp"`
 	UUID             string `json:"uuid"`
 }
+
+type DirectoryListing struct {
+	Name  string `json:"name"`
+	IsDir bool   `json:"is_dir"`
+	Size  int64  `json:"size"`
+}
