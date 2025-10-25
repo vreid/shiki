@@ -2,6 +2,6 @@ package main
 
 type DirectoryEntry struct {
 	Name  string `json:"name"`
-	IsDir bool   `json:"isDir"`
+	IsDir bool   `json:"is_dir"`
 	Size  int64  `json:"size"`
 }

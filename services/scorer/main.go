@@ -12,6 +12,11 @@ import (
 	"github.com/valkey-io/valkey-go"
 )
 
+const (
+	MaxBatchSize     = 1000
+	BatchTimeoutSecs = 1
+)
+
 var (
 	valkeyAddr  = flag.String("valkey-addr", "valkey:6379", "")
 	outcomesKey = flag.String("outcomes-key", "matchmaker:outcomes", "")
@@ -27,11 +32,6 @@ var (
 	//go:embed match-up.lua
 	matchUpScript    string
 	matchUpScriptSHA string
-)
-
-const (
-	MaxBatchSize     = 1000
-	BatchTimeoutSecs = 1
 )
 
 //nolint:tagliatelle

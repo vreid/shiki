@@ -71,6 +71,16 @@ services:
       - traefik.http.middlewares.metadata-strip.stripprefix.prefixes=/metadata
       - traefik.http.routers.metadata.middlewares=metadata-strip
 
+  storage-worker:
+    depends_on:
+      valkey:
+        condition: service_healthy
+    build:
+      context: .
+      dockerfile: services/storage-worker/Dockerfile
+    volumes:
+      - ./data/storage:/data
+
   storage:
     depends_on:
       valkey:
