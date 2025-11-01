@@ -38,9 +38,19 @@ func (s *EchoService) Register(c func(e *echo.Echo)) {
 }
 
 func (s *EchoService) Start() error {
-	return s.echo.Start(fmt.Sprintf(":%d", s.port))
+	err := s.echo.Start(fmt.Sprintf(":%d", s.port))
+	if err != nil {
+		return fmt.Errorf("failed to start echo server: %w", err)
+	}
+
+	return nil
 }
 
 func (s *EchoService) Shutdown(ctx context.Context) error {
-	return s.echo.Shutdown(ctx)
+	err := s.echo.Shutdown(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to shutdown echo server: %w", err)
+	}
+
+	return nil
 }

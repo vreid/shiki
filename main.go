@@ -25,6 +25,7 @@ func runServer(_ context.Context, cmd *cli.Command) error {
 	i := do.New()
 
 	do.ProvideNamedValue(i, "port", cmd.Int("port"))
+	do.ProvideNamedValue(i, "data-dir", cmd.String("data-dir"))
 	do.ProvideNamedValue(i, "tmp-dir", cmd.String("tmp-dir"))
 
 	do.ProvideNamedValue(i, "signature-secret", cmd.String("signature-secret"))
@@ -33,12 +34,16 @@ func runServer(_ context.Context, cmd *cli.Command) error {
 	do.ProvideNamedValue(i, "token-max-age-minutes", cmd.Int("token-max-age-minutes"))
 
 	outcomeChan := make(chan matchmaker.Outcome, 1000)
-	var outcomeSource <-chan matchmaker.Outcome = outcomeChan
-	var outcomeSink chan<- matchmaker.Outcome = outcomeChan
+
+	var (
+		outcomeSource <-chan matchmaker.Outcome = outcomeChan
+		outcomeSink   chan<- matchmaker.Outcome = outcomeChan
+	)
 
 	do.ProvideNamedValue(i, "outcome-source", outcomeSource)
 	do.ProvideNamedValue(i, "outcome-sink", outcomeSink)
 
+	do.Provide(i, common.NewDatabaseService)
 	do.Provide(i, common.NewEchoService)
 
 	do.Provide(i, matchmaker.NewMatchmakerService)
@@ -71,8 +76,13 @@ func main() {
 						Sources: cli.EnvVars("SHIKI_PORT"),
 					},
 					&cli.StringFlag{
+						Name:    "data-dir",
+						Value:   "./data",
+						Sources: cli.EnvVars("SHIKI_DATA_DIR"),
+					},
+					&cli.StringFlag{
 						Name:    "tmp-dir",
-						Value:   "./shiki/tmp",
+						Value:   "./tmp",
 						Sources: cli.EnvVars("SHIKI_TMP_DIR"),
 					},
 					&cli.StringFlag{

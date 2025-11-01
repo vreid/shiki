@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -18,6 +19,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
+
+var ErrNotEnoughAssets = errors.New("not enough assets available to pick opponents")
 
 type MatchmakerService struct {
 	OutcomeSink chan<- Outcome
@@ -117,7 +120,7 @@ func ComputeHash(outcome Outcome) string {
 
 func PickRandomOpponents(x int) ([]string, error) {
 	if x > len(metadata.Assets) {
-		return nil, fmt.Errorf("cannot pick %d opponents from %d assets", x, len(metadata.Assets))
+		return nil, fmt.Errorf("%w: cannot pick %d opponents from %d assets", ErrNotEnoughAssets, x, len(metadata.Assets))
 	}
 
 	candidates := make(map[string]bool, x)
@@ -126,7 +129,7 @@ func PickRandomOpponents(x int) ([]string, error) {
 	for len(candidates) < x {
 		randIdx, err := rand.Int(rand.Reader, maxIdx)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to generate random index: %w", err)
 		}
 
 		idx := int(randIdx.Int64())

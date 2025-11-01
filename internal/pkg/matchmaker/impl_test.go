@@ -2,6 +2,7 @@ package matchmaker_test
 
 import (
 	"crypto/rand"
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -15,7 +16,7 @@ func createOutcome(matchUp *matchmaker.SignedMatchUp) (*matchmaker.Outcome, erro
 
 	randIdx, err := rand.Int(rand.Reader, maxIdx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate random index: %w", err)
 	}
 
 	idx := int(randIdx.Int64())

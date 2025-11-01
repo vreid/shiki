@@ -1,0 +1,14 @@
+version: "2"
+
+linters:
+  default: all
+  disable:
+    - depguard
+    - exhaustruct
+    - gochecknoglobals
+    - gomoddirectives
+    - mnd
+    - revive
+    - tagliatelle
+    - varnamelen
+    - wsl

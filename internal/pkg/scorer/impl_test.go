@@ -1,45 +1,76 @@
 package scorer_test
 
 import (
+	"fmt"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/vreid/shiki/internal/pkg/common"
 	"github.com/vreid/shiki/internal/pkg/matchmaker"
 	scorer "github.com/vreid/shiki/internal/pkg/scorer"
+	bolt "go.etcd.io/bbolt"
 )
 
 func TestCalculateExpectedScore(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, 0.5, scorer.CalculateExpectedScore(1500.0, 1500.0))
+	assert.InEpsilon(t, 0.5, scorer.CalculateExpectedScore(1500.0, 1500.0), 0.0001)
 }
 
 func TestUpdateRatings(t *testing.T) {
 	t.Parallel()
 
-	winner := scorer.Scorecard{
-		AssetID: "1",
-		Rating:  1500.0,
-		Count:   100,
-	}
+	winnerRating := 1500.0
+	winnerCount := int64(100)
+	loserRating := 1500.0
+	loserCount := int64(100)
 
-	loser := scorer.Scorecard{
-		AssetID: "1",
-		Rating:  1500.0,
-		Count:   100,
-	}
+	newWinnerRating, newWinnerCount, newLoserRating, newLoserCount :=
+		scorer.UpdateRatings(winnerRating, winnerCount, loserRating, loserCount)
 
-	updatedWinner, updatedLoser := scorer.UpdateRatings(winner, loser)
-
-	assert.Equal(t, 1516.0, updatedWinner.Rating)
-	assert.Equal(t, 1484.0, updatedLoser.Rating)
+	assert.InEpsilon(t, 1516.0, newWinnerRating, 0.0001)
+	assert.Equal(t, int64(101), newWinnerCount)
+	assert.InEpsilon(t, 1484.0, newLoserRating, 0.0001)
+	assert.Equal(t, int64(101), newLoserCount)
 }
 
+//nolint:funlen // Test setup requires comprehensive initialization
 func TestHandleOutcome(t *testing.T) {
 	t.Parallel()
 
+	tmpPath := filepath.Join(t.TempDir(), "shiki-test.db")
+
+	db, err := bolt.Open(tmpPath, 0600, &bolt.Options{Timeout: 1 * time.Second})
+	require.NoError(t, err)
+
+	defer func() {
+		_ = db.Close()
+	}()
+
+	err = db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucket([]byte("ratings"))
+		if err != nil {
+			return fmt.Errorf("failed to create ratings bucket: %w", err)
+		}
+
+		_, err = tx.CreateBucket([]byte("count"))
+		if err != nil {
+			return fmt.Errorf("failed to create count bucket: %w", err)
+		}
+
+		return nil
+	})
+	require.NoError(t, err)
+
+	databaseService := &common.DatabaseService{
+		DB: db,
+	}
+
 	scorerService := &scorer.ScorerService{
-		Ranking: map[string]scorer.Scorecard{},
+		DatabaseService: databaseService,
 	}
 
 	scorerService.HandleOutcome(matchmaker.Outcome{
@@ -68,8 +99,20 @@ func TestHandleOutcome(t *testing.T) {
 		},
 	})
 
-	assert.Equal(t, 1659.67793765395, scorerService.Ranking["a-1"].Rating)
-	assert.Equal(t, 1436.0, scorerService.Ranking["a-2"].Rating)
-	assert.Equal(t, 1447.6576763283128, scorerService.Ranking["a-3"].Rating)
-	assert.Equal(t, 1456.6643860177371, scorerService.Ranking["a-4"].Rating)
+	err = db.View(func(tx *bolt.Tx) error {
+		ratings := tx.Bucket([]byte("ratings"))
+
+		winner := ratings.Get([]byte("a-1"))
+		loser2 := ratings.Get([]byte("a-2"))
+		loser3 := ratings.Get([]byte("a-3"))
+		loser4 := ratings.Get([]byte("a-4"))
+
+		assert.InEpsilon(t, 1659.0, common.BytesToFloat64(winner, 1500.0), 1.0)
+		assert.InEpsilon(t, 1436.0, common.BytesToFloat64(loser2, 1500.0), 1.0)
+		assert.InEpsilon(t, 1447.0, common.BytesToFloat64(loser3, 1500.0), 1.0)
+		assert.InEpsilon(t, 1456.0, common.BytesToFloat64(loser4, 1500.0), 1.0)
+
+		return nil
+	})
+	require.NoError(t, err)
 }

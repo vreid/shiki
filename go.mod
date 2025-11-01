@@ -8,6 +8,7 @@ require (
 	github.com/samber/do/v2 v2.0.0
 	github.com/stretchr/testify v1.11.1
 	github.com/urfave/cli/v3 v3.5.0
+	go.etcd.io/bbolt v1.4.3
 )
 
 require (
