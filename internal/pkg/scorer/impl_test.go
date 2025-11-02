@@ -51,14 +51,14 @@ func TestHandleOutcome(t *testing.T) {
 	}()
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucket([]byte("ratings"))
-		if err != nil {
-			return fmt.Errorf("failed to create ratings bucket: %w", err)
-		}
-
-		_, err = tx.CreateBucket([]byte("count"))
-		if err != nil {
-			return fmt.Errorf("failed to create count bucket: %w", err)
+		for _, bucket := range []string{
+			common.ScorerRatingsBucket,
+			common.ScorerCountBucket,
+		} {
+			_, err := tx.CreateBucketIfNotExists([]byte(bucket))
+			if err != nil {
+				return fmt.Errorf("failed to create %s bucket: %w", bucket, err)
+			}
 		}
 
 		return nil
@@ -100,7 +100,7 @@ func TestHandleOutcome(t *testing.T) {
 	})
 
 	err = db.View(func(tx *bolt.Tx) error {
-		ratings := tx.Bucket([]byte("ratings"))
+		ratings := tx.Bucket([]byte(common.ScorerRatingsBucket))
 
 		winner := ratings.Get([]byte("a-1"))
 		loser2 := ratings.Get([]byte("a-2"))

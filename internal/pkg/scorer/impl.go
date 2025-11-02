@@ -100,12 +100,12 @@ func (s *ScorerService) HandleOutcome(outcome matchmaker.Outcome) {
 		}
 
 		_ = databaseService.DB.Update(func(tx *bbolt.Tx) error {
-			ratings := tx.Bucket([]byte("ratings"))
+			ratings := tx.Bucket([]byte(common.ScorerRatingsBucket))
 			if ratings == nil {
 				return ErrRatingsBucketNotFound
 			}
 
-			count := tx.Bucket([]byte("count"))
+			count := tx.Bucket([]byte(common.ScorerCountBucket))
 			if count == nil {
 				return ErrCountBucketNotFound
 			}

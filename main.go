@@ -10,6 +10,7 @@ import (
 	"github.com/vreid/shiki/internal/pkg/common"
 	"github.com/vreid/shiki/internal/pkg/matchmaker"
 	"github.com/vreid/shiki/internal/pkg/scorer"
+	bolt "go.etcd.io/bbolt"
 
 	"github.com/urfave/cli/v3"
 )
@@ -62,10 +63,54 @@ func runServer(_ context.Context, cmd *cli.Command) error {
 	return shikiService.EchoService.Start()
 }
 
+func listRatings(_ context.Context, cmd *cli.Command) error {
+	i := do.New()
+
+	do.ProvideNamedValue(i, "data-dir", cmd.String("data-dir"))
+	do.Provide(i, common.NewDatabaseService)
+
+	dbService, err := do.Invoke[*common.DatabaseService](i)
+	if err != nil {
+		return fmt.Errorf("failed to create database service: %w", err)
+	}
+	defer dbService.Shutdown()
+
+	err = dbService.DB.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(common.ScorerRatingsBucket))
+		if bucket == nil {
+			fmt.Println("No ratings found")
+			return nil
+		}
+
+		fmt.Println("Asset ID\t\t\t\t\tRating")
+		fmt.Println("-----------------------------------------------------------")
+
+		return bucket.ForEach(func(k, v []byte) error {
+			assetID := string(k)
+			rating := common.BytesToFloat64(v, scorer.DefaultRating)
+			fmt.Printf("%s\t%.2f\n", assetID, rating)
+			return nil
+		})
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to list ratings: %w", err)
+	}
+
+	return nil
+}
+
 func main() {
 	//nolint:exhaustruct
 	cmd := &cli.Command{
 		Name: "shiki",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "data-dir",
+				Value:   "./data",
+				Sources: cli.EnvVars("SHIKI_DATA_DIR"),
+			},
+		},
 		Commands: []*cli.Command{
 			{
 				Name: "server",
@@ -74,11 +119,6 @@ func main() {
 						Name:    "port",
 						Value:   3000, //nolint:mnd
 						Sources: cli.EnvVars("SHIKI_PORT"),
-					},
-					&cli.StringFlag{
-						Name:    "data-dir",
-						Value:   "./data",
-						Sources: cli.EnvVars("SHIKI_DATA_DIR"),
 					},
 					&cli.StringFlag{
 						Name:    "tmp-dir",
@@ -107,6 +147,10 @@ func main() {
 					},
 				},
 				Action: runServer,
+			},
+			{
+				Name:   "list-ratings",
+				Action: listRatings,
 			},
 		},
 		DefaultCommand: "server",

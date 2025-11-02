@@ -12,6 +12,11 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
+const (
+	ScorerRatingsBucket = "scorer:ratings"
+	ScorerCountBucket   = "scorer:count"
+)
+
 type DatabaseService struct {
 	DB *bolt.DB
 }
@@ -32,14 +37,14 @@ func NewDatabaseService(i do.Injector) (*DatabaseService, error) {
 	}
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte("ratings"))
-		if err != nil {
-			return fmt.Errorf("failed to create ratings bucket: %w", err)
-		}
-
-		_, err = tx.CreateBucketIfNotExists([]byte("count"))
-		if err != nil {
-			return fmt.Errorf("failed to create count bucket: %w", err)
+		for _, bucket := range []string{
+			ScorerRatingsBucket,
+			ScorerCountBucket,
+		} {
+			_, err := tx.CreateBucketIfNotExists([]byte(bucket))
+			if err != nil {
+				return fmt.Errorf("failed to create %s bucket: %w", bucket, err)
+			}
 		}
 
 		return nil
