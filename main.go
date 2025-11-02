@@ -9,6 +9,7 @@ import (
 	"github.com/samber/do/v2"
 	"github.com/vreid/shiki/internal/pkg/common"
 	"github.com/vreid/shiki/internal/pkg/matchmaker"
+	"github.com/vreid/shiki/internal/pkg/receiver"
 	"github.com/vreid/shiki/internal/pkg/scorer"
 	bolt "go.etcd.io/bbolt"
 
@@ -18,6 +19,7 @@ import (
 type ShikiService struct {
 	EchoService *common.EchoService `do:""`
 
+	ReceiverService   *receiver.ReceiverService     `do:""`
 	MatchmakerService *matchmaker.MatchmakerService `do:""`
 	ScorerService     *scorer.ScorerService         `do:""`
 }
@@ -47,6 +49,7 @@ func runServer(_ context.Context, cmd *cli.Command) error {
 	do.Provide(i, common.NewDatabaseService)
 	do.Provide(i, common.NewEchoService)
 
+	do.Provide(i, receiver.NewReceiverService)
 	do.Provide(i, matchmaker.NewMatchmakerService)
 	do.Provide(i, scorer.NewScorerService)
 
@@ -73,26 +76,33 @@ func listRatings(_ context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("failed to create database service: %w", err)
 	}
-	defer dbService.Shutdown()
+
+	defer func() {
+		shutdownErr := dbService.Shutdown()
+		if shutdownErr != nil {
+			log.Printf("failed to shutdown database: %v", shutdownErr)
+		}
+	}()
 
 	err = dbService.DB.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(common.ScorerRatingsBucket))
 		if bucket == nil {
-			fmt.Println("No ratings found")
+			_, _ = fmt.Fprintln(os.Stdout, "No ratings found")
+
 			return nil
 		}
 
-		fmt.Println("Asset ID\t\t\t\t\tRating")
-		fmt.Println("-----------------------------------------------------------")
+		_, _ = fmt.Fprintln(os.Stdout, "Asset ID\t\t\t\t\tRating")
+		_, _ = fmt.Fprintln(os.Stdout, "-----------------------------------------------------------")
 
 		return bucket.ForEach(func(k, v []byte) error {
 			assetID := string(k)
 			rating := common.BytesToFloat64(v, scorer.DefaultRating)
-			fmt.Printf("%s\t%.2f\n", assetID, rating)
+			_, _ = fmt.Fprintf(os.Stdout, "%s\t%.2f\n", assetID, rating)
+
 			return nil
 		})
 	})
-
 	if err != nil {
 		return fmt.Errorf("failed to list ratings: %w", err)
 	}
